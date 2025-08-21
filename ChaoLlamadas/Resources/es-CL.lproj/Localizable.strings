@@ -1,0 +1,104 @@
+/* 
+  Localizable.strings
+  ChaoLlamadas
+
+  Created by Daniel Romero on 20-08-25.
+  
+*/
+
+// App name and general
+"app_name" = "ChaoLlamadas";
+"welcome" = "¡Bienvenido a ChaoLlamadas!";
+"version" = "Versión";
+
+// Onboarding
+"onboarding_title_1" = "¡Bienvenido a ChaoLlamadas!";
+"onboarding_description_1" = "Tu aplicación para bloquear llamadas no deseadas de números 600 en Chile";
+"onboarding_title_2" = "Nueva Ley Chilena";
+"onboarding_description_2" = "Según la nueva ley, los números que comienzan con 600 son utilizados por empresas para ventas telefónicas. Esta app los bloquea automáticamente.";
+"onboarding_title_3" = "Control Total";
+"onboarding_description_3" = "Gestiona excepciones, revisa números bloqueados y mantén el control de tus llamadas.";
+"start" = "Comenzar";
+
+// Tabs
+"blocked_numbers" = "Bloqueados";
+"exceptions" = "Excepciones";
+"app_info" = "Info";
+
+// Blocked Numbers
+"blocked_numbers_title" = "Números Bloqueados";
+"total_blocked" = "Total Bloqueados";
+"automatically_blocked_message" = "Números con prefijo 600 bloqueados automáticamente según la nueva ley chilena";
+"no_blocked_numbers" = "Sin números bloqueados";
+"numbers_will_be_blocked" = "Los números 600 se bloquearán automáticamente cuando intenten llamar";
+"commercial_call_blocked" = "Llamada comercial bloqueada";
+"configuration_required" = "Configuración Requerida";
+"enable_call_blocking_settings" = "Habilita el bloqueo de llamadas en Configuración";
+"configure" = "Configurar";
+
+// Exceptions
+"exceptions_title" = "Excepciones";
+"allowed_numbers" = "Números Permitidos";
+"add_600_numbers_message" = "Agrega números 600 que sí quieres que puedan llamarte";
+"add_exception" = "Agregar Excepción";
+"no_exceptions" = "Sin excepciones";
+"add_numbers_you_want_to_allow" = "Agrega números 600 que quieras permitir";
+"new_exception" = "Nueva Excepción";
+"phone_number" = "Número de Teléfono";
+"note_optional" = "Nota (Opcional)";
+"note_placeholder" = "Ej: Banco, médico, etc.";
+"cancel" = "Cancelar";
+"save" = "Guardar";
+"added" = "Agregado";
+
+// App Info
+"app_info_title" = "Información";
+"app_description" = "Bloquea llamadas spam de números 600 automáticamente";
+"features" = "Características";
+"automatic_blocking" = "Bloqueo Automático";
+"automatic_blocking_description" = "Bloquea todos los números 600 automáticamente";
+"exceptions_list" = "Lista de Excepciones";
+"exceptions_list_description" = "Permite números específicos que quieras recibir";
+"blocking_history" = "Historial de Bloqueos";
+"blocking_history_description" = "Ve todos los números que han sido bloqueados";
+"easy_setup" = "Fácil Configuración";
+"easy_setup_description" = "Configuración simple y automática";
+"legal_information" = "Información Legal";
+"consumer_protection_law" = "Ley de Protección al Consumidor";
+"legal_compliance_text" = "Esta aplicación cumple con la legislación chilena respecto al uso de números 600 para ventas telefónicas. Los números con este prefijo son utilizados exclusivamente por empresas para ofertas comerciales.";
+"responsible_use" = "Uso Responsable";
+"responsible_use_text" = "La aplicación bloquea números automáticamente. Si necesitas recibir llamadas de algún número 600 específico, puedes agregarlo a la lista de excepciones.";
+"support" = "Soporte";
+"frequently_asked_questions" = "Preguntas Frecuentes";
+"contact_support" = "Contactar Soporte";
+"rate_app" = "Calificar App";
+"developed_in_chile" = "Desarrollado en Chile 🇨🇱";
+"copyright" = "© 2025 ChaoLlamadas. Todos los derechos reservados.";
+
+// Call Directory Setup
+"call_blocking_setup" = "Configuración de Bloqueo";
+"checking_status" = "Verificando estado...";
+"blocking_active" = "Bloqueo Activo";
+"blocking_inactive" = "Bloqueo Inactivo";
+"how_to_enable_blocking" = "Cómo Habilitar el Bloqueo";
+"open_settings" = "Abrir Configuración";
+"open_settings_description" = "Toca el botón para ir a Configuración de iOS";
+"find_phone_settings" = "Buscar 'Teléfono'";
+"find_phone_settings_description" = "Ve a Configuración > Teléfono > Bloqueo e Identificación de Llamadas";
+"activate_chaollamadas" = "Activar ChaoLlamadas";
+"activate_chaollamadas_description" = "Activa el interruptor junto a 'ChaoLlamadas'";
+"check_status" = "Verificar Estado";
+"done" = "Listo";
+
+// Status messages
+"unknown_status" = "Estado desconocido";
+"disabled_go_to_settings" = "Deshabilitado - Ve a Configuración para habilitar";
+"enabled_blocking_600" = "Habilitado - Bloqueando llamadas 600";
+"configuration_required_status" = "Configuración requerida";
+"disabled_in_settings" = "Deshabilitado en Configuración";
+"active_blocking_600" = "Activo - Bloqueando números 600";
+"extension_reloaded_successfully" = "Extensión recargada exitosamente";
+"error_reloading" = "Error al recargar";
+
+// Numbers formatting
+"country_code" = "+56";

@@ -1,0 +1,18 @@
+{
+  "" : {
+    "diagnostics" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryExtension-master.dia",
+    "emit-module-dependencies" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryExtension-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryExtension-master-emit-module.dia",
+    "swift-dependencies" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryExtension-master.swiftdeps"
+  },
+  "/Users/danielromero/Desktop/ChaoLlamadas/CallDirectoryExtension/CallDirectoryHandler.swift" : {
+    "const-values" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler.swiftconstvalues",
+    "dependencies" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler.d",
+    "diagnostics" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler.dia",
+    "index-unit-output-path" : "/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler.o",
+    "llvm-bc" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler.bc",
+    "object" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler.o",
+    "swift-dependencies" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler.swiftdeps",
+    "swiftmodule" : "/Users/danielromero/Desktop/ChaoLlamadas/build/ChaoLlamadas.build/Debug-iphoneos/CallDirectoryExtension.build/Objects-normal/arm64/CallDirectoryHandler~partial.swiftmodule"
+  }
+}
