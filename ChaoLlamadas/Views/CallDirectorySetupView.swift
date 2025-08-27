@@ -11,6 +11,7 @@ struct CallDirectorySetupView: View {
     @StateObject private var callBlockingService = CallBlockingService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showExtensionLogs = false
+    @State private var showCommonIssues = false
     
     var body: some View {
         NavigationStack {
@@ -130,6 +131,27 @@ struct CallDirectorySetupView: View {
                     }
                     
                     Button(action: {
+                        resetAllNumbers()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.counterclockwise.circle.fill")
+                            Text("Resetear Números")
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(
+                            LinearGradient(
+                                colors: [.red, .orange],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                        .shadow(color: .red.opacity(0.3), radius: 8, x: 0, y: 4)
+                    }
+                    
+                    Button(action: {
                         showExtensionLogs.toggle()
                     }) {
                         HStack {
@@ -137,6 +159,20 @@ struct CallDirectorySetupView: View {
                             Text("Ver Logs Extension")
                         }
                         .foregroundColor(.green)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                    }
+                    
+                    Button(action: {
+                        showCommonIssues.toggle()
+                    }) {
+                        HStack {
+                            Image(systemName: "questionmark.circle")
+                            Text("Problemas Comunes")
+                        }
+                        .foregroundColor(.purple)
                         .frame(maxWidth: .infinity)
                         .padding()
                         .background(.ultraThinMaterial)
@@ -157,6 +193,9 @@ struct CallDirectorySetupView: View {
             }
             .sheet(isPresented: $showExtensionLogs) {
                 ExtensionLogsView()
+            }
+            .sheet(isPresented: $showCommonIssues) {
+                CommonIssuesView()
             }
         }
     }
@@ -182,6 +221,47 @@ struct CallDirectorySetupView: View {
         
         // Force a reload to reset everything
         callBlockingService.enableCallBlocking()
+    }
+    
+    private func resetAllNumbers() {
+        print("🔄 [Reset] Starting complete number reset")
+        
+        // Step 1: Clear all manual numbers from SwiftData
+        callBlockingService.deleteAllManualNumbers()
+        
+        // Step 2: Disable all prefix blocking
+        callBlockingService.set600Blocking(enabled: false)
+        callBlockingService.set809Blocking(enabled: false)
+        
+        // Step 3: Clear App Group data
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            print("❌ [Reset] Failed to access App Group")
+            return
+        }
+        
+        // Clear all number-related data
+        userDefaults.removeObject(forKey: "manuallyBlockedNumbers")
+        userDefaults.removeObject(forKey: "previousManuallyBlockedNumbers")
+        userDefaults.removeObject(forKey: "exceptions")
+        userDefaults.removeObject(forKey: "is600BlockingEnabled")
+        userDefaults.removeObject(forKey: "is809BlockingEnabled")
+        userDefaults.set(true, forKey: "forceFullReload")
+        userDefaults.removeObject(forKey: "useIncrementalUpdate")
+        
+        // Step 4: Force CallKit extension to clear everything
+        userDefaults.set([], forKey: "manuallyBlockedNumbers")
+        userDefaults.set(false, forKey: "is600BlockingEnabled")
+        userDefaults.set(false, forKey: "is809BlockingEnabled")
+        userDefaults.set(true, forKey: "forceCompleteReset")
+        
+        userDefaults.synchronize()
+        
+        print("✅ [Reset] All data cleared from App and App Group")
+        
+        // Step 5: Force extension reload to clear CallKit database
+        callBlockingService.enableCallBlocking()
+        
+        print("🎉 [Reset] Complete reset finished - all numbers should be unblocked")
     }
     
 }

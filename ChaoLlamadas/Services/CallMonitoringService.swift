@@ -97,34 +97,71 @@ class CallMonitoringService: NSObject, ObservableObject {
     }
     
     private func sendBlockedCallNotification(phoneNumber: String) {
-        // Check if notifications are enabled
-        let notificationsEnabled = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
-        guard notificationsEnabled else { return }
+        print("📱 [CallMonitor] Preparing to send blocked call notification for: \(phoneNumber)")
         
-        let content = UNMutableNotificationContent()
-        content.title = "Llamada Bloqueada"
-        content.body = "ChaoLlamadas bloqueó una llamada de \(formatPhoneNumber(phoneNumber))"
-        content.sound = .default
-        content.badge = 1
+        // Check if notifications are enabled with improved detection
+        let standardNotificationsEnabled = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
+        var appGroupNotificationsEnabled = false
+        if let appGroupDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            appGroupNotificationsEnabled = appGroupDefaults.bool(forKey: "blockNotificationsEnabled")
+        }
         
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-        let request = UNNotificationRequest(
-            identifier: "blocked-call-\(Date().timeIntervalSince1970)",
-            content: content,
-            trigger: trigger
-        )
+        let notificationsEnabled = standardNotificationsEnabled || appGroupNotificationsEnabled
+        print("📱 [CallMonitor] Notification settings - Standard: \(standardNotificationsEnabled), AppGroup: \(appGroupNotificationsEnabled), Final: \(notificationsEnabled)")
         
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("❌ [CallMonitor] Error sending notification: \(error)")
-            } else {
-                print("✅ [CallMonitor] Blocked call notification sent")
+        guard notificationsEnabled else {
+            print("🔕 [CallMonitor] Notifications disabled - not sending notification")
+            return
+        }
+        
+        // Check notification permissions
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            print("📱 [CallMonitor] Notification authorization status: \(settings.authorizationStatus.rawValue)")
+            
+            guard settings.authorizationStatus == .authorized else {
+                print("❌ [CallMonitor] Notifications not authorized - cannot send notification")
+                return
+            }
+            
+            let content = UNMutableNotificationContent()
+            content.title = "📵 Llamada Bloqueada"
+            content.body = "ChaoLlamadas bloqueó una llamada de \(self.formatPhoneNumber(phoneNumber))"
+            content.sound = .default
+            content.badge = 1
+            
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "blocked-call-\(Date().timeIntervalSince1970)",
+                content: content,
+                trigger: trigger
+            )
+            
+            print("📱 [CallMonitor] Scheduling notification: '\(content.title)' - '\(content.body)'")
+            
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error = error {
+                    print("❌ [CallMonitor] Error sending notification: \(error)")
+                } else {
+                    print("✅ [CallMonitor] Blocked call notification sent successfully!")
+                }
             }
         }
     }
     
     private func formatPhoneNumber(_ number: String) -> String {
+        // Handle "Número desconocido" case
+        if number == "Número desconocido" {
+            return number
+        }
+        
+        // Clean the number first
         let cleaned = number.replacingOccurrences(of: "+56", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+        
+        // Format Chilean phone numbers
         if cleaned.count >= 9 {
             let firstPart = String(cleaned.prefix(1))
             let secondPart = String(cleaned.dropFirst(1).prefix(4))
@@ -132,6 +169,117 @@ class CallMonitoringService: NSObject, ObservableObject {
             return "+56 \(firstPart) \(secondPart) \(thirdPart)"
         }
         return "+56 \(cleaned)"
+    }
+    
+    private func handlePotentialBlockedCall(callUUID: String) {
+        print("🔔 [CallMonitor] Handling potential blocked call: \(callUUID)")
+        
+        // Check if notifications are enabled - with improved detection
+        let standardNotificationsEnabled = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
+        print("🔍 [CallMonitor] Standard UserDefaults notification setting: \(standardNotificationsEnabled)")
+        
+        // Also check App Group UserDefaults as a fallback
+        var appGroupNotificationsEnabled = false
+        if let appGroupDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            appGroupNotificationsEnabled = appGroupDefaults.bool(forKey: "blockNotificationsEnabled")
+            print("🔍 [CallMonitor] App Group notification setting: \(appGroupNotificationsEnabled)")
+        }
+        
+        // Use either setting if enabled (OR logic)
+        let notificationsEnabled = standardNotificationsEnabled || appGroupNotificationsEnabled
+        print("🔍 [CallMonitor] Final notification enabled status: \(notificationsEnabled)")
+        
+        guard notificationsEnabled else {
+            print("🔕 [CallMonitor] Notifications disabled in both locations, skipping blocked call notification")
+            return
+        }
+        
+        // Check if this looks like a blocked call by monitoring extension activity
+        checkExtensionActivityForBlockedCall { [weak self] wasBlocked, phoneNumber in
+            if wasBlocked {
+                print("✅ [CallMonitor] Confirmed blocked call - sending notification")
+                let notificationPhoneNumber = phoneNumber ?? "Número desconocido"
+                print("📱 [CallMonitor] Notification will show phone number: '\(notificationPhoneNumber)'")
+                self?.sendBlockedCallNotification(phoneNumber: notificationPhoneNumber)
+                self?.logBlockedCallToDatabase(phoneNumber: phoneNumber)
+            } else {
+                print("🤔 [CallMonitor] Could not confirm blocked call, might be user rejection or network issue")
+            }
+        }
+    }
+    
+    private func checkIfCallWasBlocked(callUUID: String) {
+        print("🔍 [CallMonitor] Checking if call \(callUUID) was blocked")
+        
+        // Monitor for extension activity that indicates blocking
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.checkExtensionActivityForBlockedCall { wasBlocked, phoneNumber in
+                if wasBlocked {
+                    print("✅ [CallMonitor] Call \(callUUID) was confirmed blocked")
+                } else {
+                    print("❌ [CallMonitor] Call \(callUUID) was not blocked or could not be confirmed")
+                }
+            }
+        }
+    }
+    
+    private func checkExtensionActivityForBlockedCall(completion: @escaping (Bool, String?) -> Void) {
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            print("❌ [CallMonitor] Cannot check extension activity - App Group not accessible")
+            completion(false, nil)
+            return
+        }
+        
+        // Check for recent extension activity
+        let lastExtensionRun = userDefaults.object(forKey: "lastExtensionRun") as? Date ?? Date.distantPast
+        let now = Date()
+        
+        // If extension ran recently (within last 10 seconds), likely processing a call
+        if now.timeIntervalSince(lastExtensionRun) <= 10.0 {
+            print("✅ [CallMonitor] Recent extension activity detected - likely blocked call")
+            
+            // Try to get the most recent blocked number from extension logs
+            if let extensionLogs = userDefaults.stringArray(forKey: "extensionDebugLogs"), !extensionLogs.isEmpty {
+                // Look for recent blocking activity in logs
+                let recentLogs = extensionLogs.suffix(5)
+                for log in recentLogs {
+                    if log.contains("Manual number added") || log.contains("Adding to CallKit") {
+                        // Extract phone number if possible
+                        let phoneNumber = extractPhoneNumberFromLog(log)
+                        completion(true, phoneNumber)
+                        return
+                    }
+                }
+            }
+            
+            // Extension was active but no specific number found
+            completion(true, nil)
+        } else {
+            print("❌ [CallMonitor] No recent extension activity - call likely not blocked")
+            completion(false, nil)
+        }
+    }
+    
+    private func extractPhoneNumberFromLog(_ log: String) -> String? {
+        // Try to extract phone number from log entries like "Manual number added: +56XXXXXXXXX"
+        let pattern = "\\+56[0-9]{8,9}"
+        let regex = try? NSRegularExpression(pattern: pattern)
+        let range = NSRange(location: 0, length: log.utf16.count)
+        
+        if let match = regex?.firstMatch(in: log, range: range) {
+            let phoneNumber = String(log[Range(match.range, in: log)!])
+            return phoneNumber
+        }
+        
+        return nil
+    }
+    
+    private func logBlockedCallToDatabase(phoneNumber: String?) {
+        guard let phoneNumber = phoneNumber else { return }
+        
+        print("📝 [CallMonitor] Logging blocked call to database: \(phoneNumber)")
+        logBlockedCall(phoneNumber: phoneNumber)
+        updateBlockedCallCount()
     }
     
     private func updateBlockedCallCount() {
@@ -215,16 +363,26 @@ extension CallMonitoringService: CXCallObserverDelegate {
               call.hasConnected ? "YES" : "NO",
               call.hasEnded ? "YES" : "NO")
         
-        // Check if call was potentially blocked
-        if call.hasEnded && !call.hasConnected {
-            print("📞 [CallMonitor] Call ended without connecting - might have been blocked")
-            print("🎯 [CallMonitor] This could be our test number +56989980754 if blocking is working")
-            NSLog("🎯 POTENTIALLY BLOCKED CALL DETECTED")
+        // Enhanced blocked call detection
+        if call.hasEnded && !call.hasConnected && !call.isOutgoing {
+            print("📞 [CallMonitor] Incoming call ended without connecting - likely blocked!")
+            print("🎯 [CallMonitor] Triggering blocked call notification check")
+            NSLog("🎯 BLOCKED CALL DETECTED - UUID: %@", call.uuid.uuidString)
+            
+            // Trigger notification for blocked call (delayed to allow extension processing)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.handlePotentialBlockedCall(callUUID: call.uuid.uuidString)
+            }
         }
         
-        if !call.hasEnded && !call.hasConnected {
-            print("📞 [CallMonitor] Incoming call detected - checking if it gets blocked")
-            NSLog("📞 INCOMING CALL - Testing blocking effectiveness")
+        if !call.hasEnded && !call.hasConnected && !call.isOutgoing {
+            print("📞 [CallMonitor] Incoming call detected - monitoring for blocking")
+            NSLog("📞 INCOMING CALL - UUID: %@", call.uuid.uuidString)
+            
+            // Start monitoring this call for potential blocking
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                self.checkIfCallWasBlocked(callUUID: call.uuid.uuidString)
+            }
         }
     }
 }

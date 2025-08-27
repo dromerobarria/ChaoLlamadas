@@ -18,6 +18,7 @@ struct ManualBlockView: View {
     @State private var showingAddNumber = false
     @State private var newPhoneNumber = ""
     @State private var blockReason = "Número bloqueado manualmente"
+    @State private var pendingBlockedNumber: BlockedNumber?
     
     private let manualBlockingTip = ManualBlockingTip()
     
@@ -75,6 +76,18 @@ struct ManualBlockView: View {
             }
             .navigationTitle("Bloqueo Manual")
             .navigationBarTitleDisplayMode(.large)
+            .overlay(alignment: .top) {
+                // Floating status indicator positioned at the top
+                if callBlockingService.registrationStatus != .idle {
+                    CallKitStatusIndicator(
+                        status: callBlockingService.registrationStatus,
+                        message: callBlockingService.statusMessage
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .zIndex(1000)
+                }
+            }
             .sheet(isPresented: $showingAddNumber) {
                 AddBlockedNumberSheet(
                     phoneNumber: $newPhoneNumber,
@@ -89,6 +102,9 @@ struct ManualBlockView: View {
                 if !blockedNumbers.isEmpty {
                     syncBlockedNumbersToCallKit()
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("DeleteAllManualNumbers"))) { _ in
+                deleteAllManualNumbers()
             }
         }
     }
@@ -108,28 +124,71 @@ struct ManualBlockView: View {
             reason: reason
         )
         
-        modelContext.insert(blockedNumber)
+        // Store the pending blocked number - don't add to UI yet
+        pendingBlockedNumber = blockedNumber
         
-        do {
-            try modelContext.save()
-            print("✅ [ManualBlock] Successfully saved blocked number to SwiftData: \(finalNumber)")
-            
-            // Update CallKit extension with new blocked numbers immediately
-            // First get the current active numbers, then add the new one
-            let activeNumbers = blockedNumbers.filter { $0.isBlocked }.map { $0.phoneNumber }
-            var allNumbers = Set(activeNumbers)
-            allNumbers.insert(finalNumber) // Add the newly added number
-            let uniqueNumbers = Array(allNumbers)
-            
-            print("🔄 [ManualBlock] Syncing \(uniqueNumbers.count) numbers to CallKit (including new): \(uniqueNumbers)")
-            callBlockingService.saveManuallyBlockedNumbers(uniqueNumbers)
-            
-            // Reset form
-            newPhoneNumber = ""
-            blockReason = "Número bloqueado manualmente"
-            
-        } catch {
-            print("❌ [ManualBlock] Error saving blocked number: \(error)")
+        // Update CallKit extension with new blocked numbers immediately
+        // First get the current active numbers, then add the new one
+        let activeNumbers = blockedNumbers.filter { $0.isBlocked }.map { $0.phoneNumber }
+        var allNumbers = Set(activeNumbers)
+        allNumbers.insert(finalNumber) // Add the newly added number
+        let uniqueNumbers = Array(allNumbers)
+        
+        print("🔄 [ManualBlock] Attempting to register \(finalNumber) with CallKit")
+        callBlockingService.saveManuallyBlockedNumbers(uniqueNumbers)
+        
+        // Monitor the registration status
+        monitorRegistrationStatus()
+        
+        // Reset form
+        newPhoneNumber = ""
+        blockReason = "Número bloqueado manualmente"
+    }
+    
+    private func monitorRegistrationStatus() {
+        // Use a timer to monitor the status changes
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+            switch callBlockingService.registrationStatus {
+            case .success:
+                // Registration successful - add to SwiftData
+                if let pendingNumber = pendingBlockedNumber {
+                    modelContext.insert(pendingNumber)
+                    do {
+                        try modelContext.save()
+                        print("✅ [ManualBlock] Successfully saved blocked number to SwiftData after CallKit success: \(pendingNumber.phoneNumber)")
+                    } catch {
+                        print("❌ [ManualBlock] Error saving blocked number after CallKit success: \(error)")
+                    }
+                    pendingBlockedNumber = nil
+                }
+                timer.invalidate()
+                
+            case .failed:
+                // Registration failed - don't add to SwiftData
+                print("❌ [ManualBlock] CallKit registration failed - number not added to list")
+                pendingBlockedNumber = nil
+                timer.invalidate()
+                
+            case .idle:
+                // Status returned to idle without success - treat as failure
+                if pendingBlockedNumber != nil {
+                    print("❌ [ManualBlock] CallKit registration returned to idle - treating as failure")
+                    pendingBlockedNumber = nil
+                    timer.invalidate()
+                }
+                
+            case .registering:
+                // Still registering - continue monitoring
+                break
+            }
+        }
+        
+        // Safety timeout - don't monitor forever
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
+            if pendingBlockedNumber != nil {
+                print("⚠️ [ManualBlock] Registration monitoring timeout - cleaning up")
+                pendingBlockedNumber = nil
+            }
         }
     }
     
@@ -139,6 +198,25 @@ struct ManualBlockView: View {
         let uniqueNumbers = Array(Set(activeNumbers))
         print("🔄 [ManualBlock] Syncing \(uniqueNumbers.count) numbers to CallKit: \(uniqueNumbers)")
         callBlockingService.saveManuallyBlockedNumbers(uniqueNumbers)
+    }
+    
+    private func deleteAllManualNumbers() {
+        print("🗑️ [ManualBlock] Deleting all manual numbers from SwiftData")
+        
+        // Delete all blocked numbers from SwiftData
+        for blockedNumber in blockedNumbers {
+            modelContext.delete(blockedNumber)
+        }
+        
+        do {
+            try modelContext.save()
+            print("✅ [ManualBlock] All manual numbers deleted from SwiftData")
+            
+            // Sync empty list to CallKit
+            callBlockingService.saveManuallyBlockedNumbers([])
+        } catch {
+            print("❌ [ManualBlock] Error deleting all manual numbers: \(error)")
+        }
     }
 }
 

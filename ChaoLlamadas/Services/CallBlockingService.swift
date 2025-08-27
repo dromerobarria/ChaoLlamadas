@@ -11,6 +11,13 @@ import CallKit
 import UserNotifications
 import WidgetKit
 
+enum CallKitRegistrationStatus {
+    case idle
+    case registering
+    case success
+    case failed
+}
+
 class CallBlockingService: NSObject, ObservableObject {
     static let shared = CallBlockingService()
     
@@ -19,6 +26,10 @@ class CallBlockingService: NSObject, ObservableObject {
     @Published var blockNotificationsEnabled = false
     @Published var is600BlockingEnabled = true
     @Published var is809BlockingEnabled = false
+    
+    // Visual status feedback for number registration
+    @Published var registrationStatus: CallKitRegistrationStatus = .idle
+    @Published var statusMessage: String = ""
     
     private let extensionIdentifier = "com.dromero.ChaoLlamadas.CallDirectoryExtension"
     
@@ -35,69 +46,137 @@ class CallBlockingService: NSObject, ObservableObject {
             self.checkPendingReloads()
         }
         
-        // FOR TESTING: Add our test number automatically
+        // CLEAN SLATE: On app initialization, clear previous state to ensure fresh start
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            self.ensureTestNumberIsBlocked()
+            self.clearPreviousStateForFreshStart()
         }
         
-        // FOR DEBUGGING: Force extension execution after 5 seconds
+        // FOR DEBUGGING: Force extension execution after 5 seconds to verify functionality
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
             self.forceExtensionExecutionForDebugging()
         }
     }
     
-    // TESTING FUNCTION: Ensure our test number is in the blocked numbers list
-    private func ensureTestNumberIsBlocked() {
-        let testNumber = "+56989980754"
-        print("🎯 [CallKit] TESTING: Ensuring test number \(testNumber) is in blocked list")
+    // CLEAN SLATE: Clear previous state to force fresh start and avoid stale blocked numbers
+    private func clearPreviousStateForFreshStart() {
+        print("🧹 [CallKit] Clearing previous state for fresh start")
         
         guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
-            print("❌ [CallKit] TESTING: Cannot access App Group to add test number")
-            print("💡 [CallKit] TESTING: This is a critical issue - extension won't work without App Group")
+            print("❌ [CallKit] Cannot access App Group to clear state")
             return
         }
         
-        // Clear any existing problematic data first
-        print("🧹 [CallKit] TESTING: Clearing potentially problematic App Group data")
-        userDefaults.removeObject(forKey: "manuallyBlockedNumbers") // Clear to start fresh
-        userDefaults.removeObject(forKey: "forceFullReload")
+        // Clear the previous state so next update will be a full rebuild
+        userDefaults.removeObject(forKey: "previousManuallyBlockedNumbers")
+        userDefaults.set(true, forKey: "forceFullReload") // Force full reload on next update
+        userDefaults.removeObject(forKey: "useIncrementalUpdate")
         
-        // Set our test number as the ONLY manually blocked number
-        let testNumberArray = [testNumber]
-        userDefaults.set(testNumberArray, forKey: "manuallyBlockedNumbers")
+        print("✅ [CallKit] Previous state cleared - next update will be full rebuild")
+    }
+    
+    // COMPLETE RESET: Delete all manual numbers from SwiftData
+    func deleteAllManualNumbers() {
+        print("🗑️ [Reset] Deleting all manual numbers from SwiftData")
+        
+        // We need to access the model context to delete all BlockedNumber entities
+        // This will be called from the UI context where modelContext is available
+        NotificationCenter.default.post(name: Notification.Name("DeleteAllManualNumbers"), object: nil)
+        
+        print("✅ [Reset] Manual numbers deletion requested")
+    }
+    
+    // COMPLETE RESET: Centralized method to perform complete reset
+    func performCompleteReset() {
+        print("🔄 [Reset] Starting complete reset from CallBlockingService")
+        
+        // Step 1: Clear all manual numbers from SwiftData
+        deleteAllManualNumbers()
+        
+        // Step 2: Disable all prefix blocking
+        set600Blocking(enabled: false)
+        set809Blocking(enabled: false)
+        
+        // Step 3: Clear App Group data
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            print("❌ [Reset] Failed to access App Group")
+            return
+        }
+        
+        // Clear all number-related data
+        userDefaults.removeObject(forKey: "manuallyBlockedNumbers")
+        userDefaults.removeObject(forKey: "previousManuallyBlockedNumbers")
+        userDefaults.removeObject(forKey: "exceptions")
+        userDefaults.removeObject(forKey: "is600BlockingEnabled")
+        userDefaults.removeObject(forKey: "is809BlockingEnabled")
         userDefaults.set(true, forKey: "forceFullReload")
-        userDefaults.set(Date(), forKey: "lastTestNumberUpdate")
+        userDefaults.removeObject(forKey: "useIncrementalUpdate")
         
-        // Force multiple sync attempts
-        var syncSuccess = false
-        for attempt in 1...3 {
-            let result = userDefaults.synchronize()
-            print("🔄 [CallKit] TESTING: Sync attempt \(attempt)/3: \(result ? "SUCCESS" : "FAILED")")
-            if result {
-                syncSuccess = true
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.5)
+        // Step 4: Force CallKit extension to clear everything
+        userDefaults.set([], forKey: "manuallyBlockedNumbers")
+        userDefaults.set(false, forKey: "is600BlockingEnabled")
+        userDefaults.set(false, forKey: "is809BlockingEnabled")
+        userDefaults.set(true, forKey: "forceCompleteReset")
+        
+        userDefaults.synchronize()
+        
+        print("✅ [Reset] All data cleared from App and App Group")
+        
+        // Step 5: Update UI state immediately
+        DispatchQueue.main.async {
+            self.is600BlockingEnabled = false
+            self.is809BlockingEnabled = false
+            self.callDirectoryStatus = "Reseteando números bloqueados..."
         }
         
-        if syncSuccess {
-            print("✅ [CallKit] TESTING: Successfully added test number \(testNumber) to App Group")
-            
-            // Verify it was saved
-            if let saved = userDefaults.stringArray(forKey: "manuallyBlockedNumbers") {
-                print("✅ [CallKit] TESTING: Verification - saved numbers: \(saved)")
-            }
-        } else {
-            print("❌ [CallKit] TESTING: Failed to sync test number to App Group after 3 attempts")
-            print("💡 [CallKit] TESTING: Extension may not see the test number")
+        // Step 6: Force extension reload to clear CallKit database
+        print("🔄 [Reset] Forcing extension reload to process complete reset")
+        
+        // Force immediate reload to process the reset flag
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.forceCompleteResetReload()
         }
         
-        // Trigger extension reload to pick up the test number (with longer delay)
-        print("🔄 [CallKit] TESTING: Triggering extension reload for test number (3 second delay)")
+        // Step 7: Update status after a delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.enableCallBlocking()
+            self.callDirectoryStatus = "Reset completado - números desbloqueados"
+        }
+        
+        print("🎉 [Reset] Complete reset finished - all numbers should be unblocked")
+    }
+    
+    // FORCE COMPLETE RESET: Special reload just for reset operations
+    private func forceCompleteResetReload() {
+        print("💥 [Reset] FORCING complete reset reload - bypassing all restrictions")
+        
+        // Reset all timing restrictions to force immediate reload
+        lastReloadTime = Date.distantPast
+        isReloadInProgress = false
+        retryCount = 0
+        
+        // Force reload with maximum priority
+        CXCallDirectoryManager.sharedInstance.reloadExtension(withIdentifier: extensionIdentifier) { [weak self] error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    let errorCode = (error as NSError).code
+                    print("⚠️ [Reset] Reset reload error \(errorCode): \(error)")
+                    
+                    // Even if there's an error, try one more time after a delay
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self?.enableCallBlocking()
+                    }
+                } else {
+                    print("✅ [Reset] COMPLETE RESET successful - CallKit database should be cleared")
+                    self?.callDirectoryStatus = "Reset completado - CallKit limpiado"
+                    
+                    // Verify the reset worked by forcing one more reload
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self?.enableCallBlocking()
+                    }
+                }
+            }
         }
     }
+    
     
     // DEBUGGING: Force extension to execute and show logs
     private func forceExtensionExecutionForDebugging() {
@@ -184,8 +263,8 @@ class CallBlockingService: NSObject, ObservableObject {
                 print("✅ [DEBUGGING] Extension HAS EXECUTED after our debug request!")
                 print("🎯 [DEBUGGING] Extension is running - the issue may be with the phone number format or CallKit processing")
                 
-                // Let's check if the test number was actually added
-                self.checkTestNumberInCallKit()
+                // Check manual number processing
+                self.checkManualNumberProcessing()
             } else {
                 print("❌ [DEBUGGING] Extension has NOT executed since our debug request")
                 print("💡 [DEBUGGING] This indicates the extension is not being triggered properly")
@@ -210,8 +289,8 @@ class CallBlockingService: NSObject, ObservableObject {
         }
     }
     
-    private func checkTestNumberInCallKit() {
-        print("🔍 [DEBUGGING] Checking if test number +56989980754 was processed by extension...")
+    private func checkManualNumberProcessing() {
+        print("🔍 [DEBUGGING] Checking manual number processing by extension...")
         
         guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
             print("❌ [DEBUGGING] Cannot check - App Group not accessible")
@@ -221,23 +300,25 @@ class CallBlockingService: NSObject, ObservableObject {
         // Check what the extension actually processed
         let processedNumbers = userDefaults.stringArray(forKey: "lastProcessedNumbers") ?? []
         let numbersBlocked = userDefaults.integer(forKey: "lastBlockedCount")
-        let conversionSuccess = userDefaults.bool(forKey: "testNumberConversionSuccess")
-        let convertedNumber = userDefaults.string(forKey: "convertedTestNumber") ?? "Not converted"
+        let manualConversionSuccess = userDefaults.bool(forKey: "manualConversionSuccess")
+        let manualBlockedCount = userDefaults.integer(forKey: "manualBlockedCount")
         
         print("🔍 [DEBUGGING] Extension processing results:")
         print("   - Numbers processed: \(processedNumbers)")
-        print("   - Numbers blocked count: \(numbersBlocked)")
-        print("   - Test number conversion success: \(conversionSuccess)")
-        print("   - Converted test number: \(convertedNumber)")
+        print("   - Total numbers blocked: \(numbersBlocked)")
+        print("   - Manual conversion success: \(manualConversionSuccess)")
+        print("   - Manual numbers blocked: \(manualBlockedCount)")
         
-        if conversionSuccess && numbersBlocked > 0 {
-            print("✅ [DEBUGGING] Extension successfully processed and blocked the test number!")
-            print("🎯 [DEBUGGING] Blocking should be working. Call +56989980754 to test.")
-        } else if !conversionSuccess {
-            print("❌ [DEBUGGING] Extension failed to convert test number to CallKit format")
-            print("💡 [DEBUGGING] Issue is in the convertToCallKitFormat function")
+        if manualConversionSuccess && manualBlockedCount > 0 {
+            print("✅ [DEBUGGING] Extension successfully processed manual numbers!")
+            print("🎯 [DEBUGGING] Manual blocking is working. Add numbers via UI to test.")
+        } else if !manualConversionSuccess {
+            print("❌ [DEBUGGING] Extension failed to convert some manual numbers")
+            print("💡 [DEBUGGING] Check the convertToCallKitFormat function")
+        } else if manualBlockedCount == 0 && processedNumbers.isEmpty {
+            print("ℹ️ [DEBUGGING] No manual numbers to process - add numbers via UI")
         } else {
-            print("⚠️ [DEBUGGING] Extension converted number but didn't add it to CallKit")
+            print("⚠️ [DEBUGGING] Extension processed numbers but didn't block them")
             print("💡 [DEBUGGING] Issue may be in CallKit addition process")
         }
     }
@@ -492,18 +573,21 @@ class CallBlockingService: NSObject, ObservableObject {
         
         print("🔄 [CallKit] Attempting to reload extension: \(extensionIdentifier)")
         
-        // Simplified App Group preparation - don't fail if App Group has issues
-        print("🔄 [CallKit] Preparing for reload (App Group optional)")
+        // OPTIMIZED: Simple App Group preparation without blocking operations
+        print("🔄 [CallKit] Preparing for reload with optimized sync")
         
         if let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
             userDefaults.set(true, forKey: "forceFullReload")
-            let syncResult = userDefaults.synchronize()
-            print(syncResult ? "✅ [CallKit] App Group ready" : "⚠️ [CallKit] App Group sync failed, proceeding anyway")
+            userDefaults.set(Date(), forKey: "lastReloadRequest")
+            
+            // Skip synchronize() - just verify data is accessible
+            let manualNumbers = userDefaults.stringArray(forKey: "manuallyBlockedNumbers") ?? []
+            print("✅ [CallKit] App Group accessible: \(manualNumbers.count) manual numbers ready")
         } else {
-            print("⚠️ [CallKit] App Group not accessible, proceeding with reload anyway")
+            print("⚠️ [CallKit] App Group not accessible - extension will use defaults")
         }
         
-        print("✅ [CallKit] Prepared for reload")
+        print("✅ [CallKit] Optimized preparation complete")
         
         CXCallDirectoryManager.sharedInstance.reloadExtension(withIdentifier: extensionIdentifier) { [weak self] error in
             DispatchQueue.main.async {
@@ -596,32 +680,95 @@ class CallBlockingService: NSObject, ObservableObject {
     func saveManuallyBlockedNumbers(_ numbers: [String]) {
         print("💾 [CallKit] Saving \(numbers.count) manually blocked numbers: \(numbers)")
         
-        // Try to save to App Group, but don't fail if it doesn't work
-        if let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
-            userDefaults.set(numbers, forKey: "manuallyBlockedNumbers")
-            userDefaults.set(true, forKey: "forceFullReload")
-            userDefaults.set(Date(), forKey: "lastManualNumbersUpdate")
-            print("✅ [CallKit] Numbers saved to App Group")
-        } else {
-            print("⚠️ [CallKit] App Group not accessible, extension will use defaults")
+        // Set initial status
+        DispatchQueue.main.async {
+            self.registrationStatus = .registering
+            self.statusMessage = "Registrando número..."
         }
         
-        // Always attempt reload regardless of App Group status
-        print("🔄 [CallKit] Triggering extension reload for manual numbers")
-        
-        // Check if we're in a persistent failure state
-        if retryCount >= maxRetries {
-            print("⚠️ [CallKit] In persistent failure state, trying alternative approach")
-            // Use smart reload immediately for persistent failures
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                self.smartExtensionReload()
+        // OPTIMIZED: Non-blocking sync with completion handler
+        performOptimizedAppGroupSync(numbers: numbers) { [weak self] syncSuccessful in
+            if !syncSuccessful {
+                print("❌ [CallKit] App Group sync failed")
+                DispatchQueue.main.async {
+                    self?.registrationStatus = .failed
+                    self?.statusMessage = "Ha ocurrido un error no se ha podido registrar el número"
+                }
+                // Auto-hide after 5 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                    self?.registrationStatus = .idle
+                    self?.statusMessage = ""
+                }
+                return
             }
-        } else {
-            // Normal reload attempt
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.enableCallBlocking()
+            
+            print("✅ [CallKit] Optimized sync successful - proceeding with reload")
+            
+            // Check if we're currently rate-limited
+            if self?.retryCount ?? 0 >= 3 {
+                print("⚠️ [CallKit] Currently rate-limited - using passive approach")
+                DispatchQueue.main.async {
+                    self?.callDirectoryStatus = "Números guardados - CallKit en espera"
+                    self?.registrationStatus = .failed
+                    self?.statusMessage = "Ha ocurrido un error no se ha podido registrar el número"
+                }
+                self?.handleRateLimitedReload()
+                // Auto-hide after 5 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                    self?.registrationStatus = .idle
+                    self?.statusMessage = ""
+                }
+                return
+            }
+            
+            // Trigger reload after sync completes (non-blocking)
+            print("🔄 [CallKit] Triggering extension reload for manual numbers")
+            
+            // Use optimized reload instead of legacy retry system
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self?.optimizedCallBlockingReload { success in
+                    DispatchQueue.main.async {
+                        if success {
+                            self?.registrationStatus = .success
+                            self?.statusMessage = "Número registrado"
+                        } else {
+                            self?.registrationStatus = .failed
+                            self?.statusMessage = "Ha ocurrido un error no se ha podido registrar el número"
+                        }
+                        
+                        // Auto-hide after 3 seconds
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            self?.registrationStatus = .idle
+                            self?.statusMessage = ""
+                        }
+                    }
+                }
             }
         }
+    }
+    
+    // Add a method to verify if numbers are actually working despite reload failures
+    func verifyBlockingEffectiveness() -> String {
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            return "No se puede verificar - App Group no accesible"
+        }
+        
+        // Check if extension has been running recently
+        let lastExtensionRun = userDefaults.object(forKey: "lastExtensionRun") as? Date
+        let manualNumbers = userDefaults.stringArray(forKey: "manuallyBlockedNumbers") ?? []
+        
+        if let lastRun = lastExtensionRun {
+            let timeSinceLastRun = Date().timeIntervalSince(lastRun)
+            if timeSinceLastRun < 300 { // Less than 5 minutes ago
+                if manualNumbers.isEmpty {
+                    return "Extension activa - Sin números manuales"
+                } else {
+                    return "Extension activa - \(manualNumbers.count) números configurados"
+                }
+            }
+        }
+        
+        return "Extension inactiva - Verificar configuración iOS"
     }
     
     // Alternative mechanism: Prepare data for next available reload opportunity
@@ -1021,7 +1168,22 @@ class CallBlockingService: NSObject, ObservableObject {
     
     func loadNotificationSettings() {
         DispatchQueue.main.async {
-            self.blockNotificationsEnabled = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
+            // Load notification setting from standard UserDefaults
+            let standardNotificationSetting = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
+            print("🔄 [Notifications] Loading from standard UserDefaults: \(standardNotificationSetting)")
+            
+            // Also check App Group UserDefaults
+            var appGroupNotificationSetting = false
+            if let appGroupDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+                appGroupNotificationSetting = appGroupDefaults.bool(forKey: "blockNotificationsEnabled")
+                print("🔄 [Notifications] Loading from App Group: \(appGroupNotificationSetting)")
+            }
+            
+            // Use the setting that's enabled (OR logic)
+            let finalNotificationSetting = standardNotificationSetting || appGroupNotificationSetting
+            print("🔄 [Notifications] Final loaded setting: \(finalNotificationSetting)")
+            
+            self.blockNotificationsEnabled = finalNotificationSetting
             self.is600BlockingEnabled = UserDefaults.standard.object(forKey: "is600BlockingEnabled") as? Bool ?? true
             self.is809BlockingEnabled = UserDefaults.standard.bool(forKey: "is809BlockingEnabled")
         }
@@ -1031,11 +1193,23 @@ class CallBlockingService: NSObject, ObservableObject {
     }
     
     func setBlockNotifications(enabled: Bool) {
+        print("🔔 [Notifications] Setting block notifications: \(enabled)")
         blockNotificationsEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: "blockNotificationsEnabled")
         
+        // Force synchronize to ensure the setting is immediately available
+        UserDefaults.standard.synchronize()
+        print("✅ [Notifications] Setting saved and synchronized: \(enabled)")
+        
         if enabled {
             requestNotificationPermissions()
+        }
+        
+        // Also set in App Group for extension access if needed
+        if let appGroupDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            appGroupDefaults.set(enabled, forKey: "blockNotificationsEnabled")
+            appGroupDefaults.synchronize()
+            print("✅ [Notifications] Setting also saved to App Group: \(enabled)")
         }
     }
     
@@ -1259,6 +1433,191 @@ class CallBlockingService: NSObject, ObservableObject {
         // This would be called when we detect a blocked call occurred
         // Since iOS doesn't provide direct blocked call notifications, 
         // this is mainly for testing the persistence system
+    }
+    
+    // MARK: - Optimized App Group Sync (Non-blocking)
+    
+    private func performOptimizedAppGroupSync(numbers: [String], completion: @escaping (Bool) -> Void) {
+        // Move to background queue to avoid UI freezing
+        DispatchQueue.global(qos: .userInitiated).async {
+            print("🔄 [CallKit] Starting optimized App Group sync for \(numbers.count) numbers")
+            
+            guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+                print("❌ [CallKit] Cannot access App Group for sync")
+                DispatchQueue.main.async { completion(false) }
+                return
+            }
+            
+            // OPTIMIZED: Direct write without excessive retries
+            print("📝 [CallKit] Direct write to App Group (optimized)")
+            userDefaults.set(numbers, forKey: "manuallyBlockedNumbers")
+            
+            // FORCE INCREMENTAL UPDATE: This tells the extension to use incremental updates
+            userDefaults.set(false, forKey: "forceFullReload") // Changed to false to trigger incremental
+            userDefaults.set(true, forKey: "useIncrementalUpdate") // New flag for incremental
+            userDefaults.set(Date(), forKey: "lastManualNumbersUpdate")
+            
+            // Skip unreliable synchronize() calls - just verify the write worked
+            let verification = userDefaults.stringArray(forKey: "manuallyBlockedNumbers") ?? []
+            let writeSuccessful = verification == numbers
+            
+            if writeSuccessful {
+                print("✅ [CallKit] Optimized sync successful - numbers written to App Group")
+                
+                // Set fallback data as backup (but don't wait for sync)
+                self.setFallbackData(numbers: numbers, userDefaults: userDefaults)
+                
+                DispatchQueue.main.async { completion(true) }
+            } else {
+                print("⚠️ [CallKit] Primary write failed, trying fallback method")
+                
+                // Quick fallback attempt
+                let fallbackSuccess = self.setFallbackData(numbers: numbers, userDefaults: userDefaults)
+                DispatchQueue.main.async { completion(fallbackSuccess) }
+            }
+        }
+    }
+    
+    private func setFallbackData(numbers: [String], userDefaults: UserDefaults) -> Bool {
+        print("🔄 [CallKit] Setting fallback data with individual keys")
+        
+        // Clear existing fallback keys (limit to 20 to avoid excessive clearing)
+        for i in 0..<20 {
+            userDefaults.removeObject(forKey: "manual_\(i)")
+        }
+        
+        // Set new fallback data
+        userDefaults.set(numbers.count, forKey: "manualNumbersTotal")
+        for (index, number) in numbers.enumerated() {
+            userDefaults.set(number, forKey: "manual_\(index)")
+        }
+        userDefaults.set(true, forKey: "useFallbackNumbers")
+        userDefaults.set(Date(), forKey: "fallbackSyncTime")
+        
+        // Verify fallback write
+        let verifyCount = userDefaults.integer(forKey: "manualNumbersTotal")
+        let fallbackWorked = verifyCount == numbers.count
+        
+        print(fallbackWorked ? "✅ [CallKit] Fallback data set successfully" : "❌ [CallKit] Fallback data failed")
+        return fallbackWorked
+    }
+    
+    // MARK: - Optimized CallKit Reload
+    
+    private func optimizedCallBlockingReload(completion: ((Bool) -> Void)? = nil) {
+        print("🚀 [CallKit] Starting optimized CallKit reload")
+        
+        // Check if we're hitting rate limiting (Error 2)
+        if retryCount >= 3 {
+            print("⚠️ [CallKit] Rate limiting detected - using passive sync strategy")
+            handleRateLimitedReload()
+            completion?(false)
+            return
+        }
+        
+        // Skip timing restrictions for optimized reload
+        lastReloadTime = Date.distantPast
+        isReloadInProgress = false
+        
+        // Direct CallKit reload without excessive sync operations
+        CXCallDirectoryManager.sharedInstance.reloadExtension(withIdentifier: extensionIdentifier) { [weak self] error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    let errorCode = (error as NSError).code
+                    print("⚠️ [CallKit] Optimized reload error: \(error)")
+                    
+                    // Handle Error 2 (rate limiting) differently
+                    if errorCode == 2 {
+                        print("🚫 [CallKit] CallKit rate limiting detected - switching to passive mode")
+                        self?.handleRateLimitedReload()
+                    } else if errorCode == 19 {
+                        print("🔄 [CallKit] Database conflict - retrying once")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            self?.enableCallBlocking()
+                        }
+                    } else {
+                        self?.callDirectoryStatus = "Error: \(error.localizedDescription)"
+                    }
+                    completion?(false)
+                } else {
+                    print("✅ [CallKit] Optimized reload successful")
+                    self?.callDirectoryStatus = "CallKit activado - Bloqueo funcionando"
+                    self?.retryCount = 0 // Reset retry count on success
+                    
+                    // Update widget without blocking UI
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        WidgetCenter.shared.reloadAllTimelines()
+                    }
+                    completion?(true)
+                }
+            }
+        }
+    }
+    
+    private func handleRateLimitedReload() {
+        print("🕐 [CallKit] Handling rate-limited reload - using passive sync")
+        callDirectoryStatus = "Números guardados - IR A CONFIGURACIÓN iOS y desactivar/activar ChaoLlamadas"
+        
+        // Set data in App Group and let iOS reload the extension naturally
+        if let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            userDefaults.set(true, forKey: "hasPendingReload")
+            userDefaults.set(Date(), forKey: "pendingReloadTime")
+            print("✅ [CallKit] Data prepared for next natural iOS reload")
+            
+            // Save user message for rate limiting
+            userDefaults.set("RATE_LIMITED", forKey: "callKitStatus")
+            userDefaults.set(Date(), forKey: "rateLimitedSince")
+        }
+        
+        // Schedule periodic checks for when CallKit becomes available again
+        schedulePassiveReloadCheck()
+    }
+    
+    private func schedulePassiveReloadCheck() {
+        print("⏰ [CallKit] Scheduling passive reload check in 60 seconds")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60.0) {
+            print("🔍 [CallKit] Checking if CallKit rate limiting has cleared")
+            
+            // Check extension status without triggering reload
+            CXCallDirectoryManager.sharedInstance.getEnabledStatusForExtension(withIdentifier: self.extensionIdentifier) { status, error in
+                DispatchQueue.main.async {
+                    if error == nil && status == .enabled {
+                        print("✅ [CallKit] Extension available again - attempting gentle reload")
+                        
+                        // Reset retry count and try one gentle reload
+                        self.retryCount = 0
+                        self.lastReloadTime = Date.distantPast
+                        
+                        // Try a single gentle reload
+                        CXCallDirectoryManager.sharedInstance.reloadExtension(withIdentifier: self.extensionIdentifier) { reloadError in
+                            DispatchQueue.main.async {
+                                if let reloadError = reloadError {
+                                    let errorCode = (reloadError as NSError).code
+                                    if errorCode == 2 {
+                                        print("🚫 [CallKit] Still rate limited - continuing passive mode")
+                                        self.schedulePassiveReloadCheck()
+                                    } else {
+                                        print("⚠️ [CallKit] Gentle reload failed with error: \(reloadError)")
+                                        self.callDirectoryStatus = "Error: \(reloadError.localizedDescription)"
+                                    }
+                                } else {
+                                    print("🎉 [CallKit] Gentle reload successful after rate limiting!")
+                                    self.callDirectoryStatus = "CallKit activado - Bloqueo funcionando"
+                                    
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                        WidgetCenter.shared.reloadAllTimelines()
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        print("⏳ [CallKit] Extension still not ready - continuing passive checks")
+                        self.schedulePassiveReloadCheck()
+                    }
+                }
+            }
+        }
     }
     
     // MARK: - Extension Reset

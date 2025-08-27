@@ -7,12 +7,14 @@
 
 import SwiftUI
 import TipKit
+import UserNotifications
 
 struct SettingsView: View {
     @StateObject private var callBlockingService = CallBlockingService.shared
     @StateObject private var tipManager = CallBlockingTipManager.shared
     @State private var showingSetup = false
     @State private var showingBlockingDisabledAlert = false
+    @State private var showingCommonIssues = false
     
     var body: some View {
         NavigationStack {
@@ -117,8 +119,42 @@ struct SettingsView: View {
                         }
                     }
                     .tint(.blue)
-                    .onChange(of: callBlockingService.blockNotificationsEnabled) { _, newValue in
+                    .onChange(of: callBlockingService.blockNotificationsEnabled) { oldValue, newValue in
+                        print("🔔 [Settings] Notification toggle changed: \(oldValue) → \(newValue)")
                         callBlockingService.setBlockNotifications(enabled: newValue)
+                    }
+                    
+                    // Test notification button - only show when notifications are enabled
+                    if callBlockingService.blockNotificationsEnabled {
+                        Button(action: {
+                            sendTestNotification()
+                        }) {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(.green.opacity(0.2))
+                                        .frame(width: 40, height: 40)
+                                    
+                                    Image(systemName: "bell.badge")
+                                        .font(.system(size: 18))
+                                        .foregroundStyle(.green)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Probar Notificación")
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                    
+                                    Text("Envía una notificación de prueba")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                
+                                Spacer()
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
                     }
                     
                     // Setup instructions for all users
@@ -126,6 +162,18 @@ struct SettingsView: View {
                     
                     // Warning about other blocking apps
                     BlockingAppsWarningCard()
+                    
+                    // Common Issues button
+                    SettingsLinkRow(
+                        icon: "questionmark.circle",
+                        iconColor: .purple,
+                        title: "Problemas Comunes",
+                        subtitle: "Soluciones a problemas frecuentes",
+                        action: { showingCommonIssues = true }
+                    )
+                    
+                    // Reset Numbers button - prominent placement
+                    ResetNumbersButton()
                     
                 } header: {
                     Text("Bloqueo de Llamadas")
@@ -207,6 +255,9 @@ struct SettingsView: View {
             .sheet(isPresented: $showingSetup) {
                 CallDirectorySetupView()
             }
+            .sheet(isPresented: $showingCommonIssues) {
+                CommonIssuesView()
+            }
             .alert("Bloqueo de Llamadas Desactivado", isPresented: $showingBlockingDisabledAlert) {
                 Button("Ir a Configuración") {
                     callBlockingService.openCallSettings()
@@ -228,6 +279,33 @@ struct SettingsView: View {
     private func openPrivacy() {
         if let url = URL(string: "https://www.termsfeed.com/live/8b822ef5-e37f-447a-9f82-ebad204541d9") {
             UIApplication.shared.open(url)
+        }
+    }
+    
+    private func sendTestNotification() {
+        print("🧪 [Settings] Sending test notification")
+        
+        let content = UNMutableNotificationContent()
+        content.title = "🧪 Notificación de Prueba"
+        content.body = "¡Si puedes ver esto, las notificaciones funcionan correctamente! (Aparece después de 10 segundos)"
+        content.sound = .default
+        content.badge = 1
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 10, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "test-notification-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: trigger
+        )
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("❌ [Settings] Test notification error: \(error)")
+                } else {
+                    print("✅ [Settings] Test notification sent successfully!")
+                }
+            }
         }
     }
     
@@ -491,6 +569,63 @@ struct BlockingAppsWarningCard: View {
                     .fill(.orange.opacity(0.1))
             }
         }
+    }
+}
+
+struct ResetNumbersButton: View {
+    @StateObject private var callBlockingService = CallBlockingService.shared
+    @State private var showingResetAlert = false
+    
+    var body: some View {
+        Button(action: {
+            showingResetAlert = true
+        }) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(.red.opacity(0.2))
+                        .frame(width: 40, height: 40)
+                    
+                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.red)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Resetear Números")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    
+                    Text("Elimina todos los números bloqueados y limpia CallKit")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.orange)
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .alert("⚠️ Resetear Números", isPresented: $showingResetAlert) {
+            Button("Cancelar", role: .cancel) { }
+            Button("Resetear Todo", role: .destructive) {
+                resetAllNumbers()
+            }
+        } message: {
+            Text("Esto eliminará TODOS los números bloqueados manualmente y desactivará los prefijos 600/809. También limpiará completamente la base de datos de CallKit. ¿Continuar?")
+        }
+    }
+    
+    private func resetAllNumbers() {
+        print("🔄 [Reset] Starting complete number reset from Settings")
+        
+        // Call the service method directly since we have access to it here
+        callBlockingService.performCompleteReset()
     }
 }
 
