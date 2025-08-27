@@ -79,6 +79,12 @@ struct ExceptionsView: View {
     private func addException() {
         guard !newPhoneNumber.isEmpty else { return }
         
+        // Prevent adding 600 or 809 prefixes as exceptions since they're managed separately
+        if isBlockedPrefix(newPhoneNumber) {
+            // Show error or just return - these prefixes are managed by the automatic blocking system
+            return
+        }
+        
         let exception = ExceptionNumber(phoneNumber: newPhoneNumber, note: newNote)
         modelContext.insert(exception)
         
@@ -90,6 +96,15 @@ struct ExceptionsView: View {
         showingAddException = false
         newPhoneNumber = ""
         newNote = ""
+    }
+    
+    private func isBlockedPrefix(_ phoneNumber: String) -> Bool {
+        let cleanNumber = phoneNumber.replacingOccurrences(of: "+56", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        
+        // Check if number starts with 600 or 809
+        return cleanNumber.hasPrefix("600") || cleanNumber.hasPrefix("809")
     }
     
     private func deleteException(_ exception: ExceptionNumber) {
@@ -119,7 +134,7 @@ struct InfoCard: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(.primary)
                 
-                Text("Agrega números 600 que sí quieres que puedan llamarte, como tu banco o clínica")
+                Text("Agrega números específicos que sí quieres que puedan llamarte, como tu banco o clínica")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -286,7 +301,7 @@ struct EmptyExceptionsView: View {
                     .fontWeight(.bold)
                     .foregroundStyle(.primary)
                 
-                Text("¿Hay algún número 600 que sí quieres que te llame? Agrégalo como excepción.")
+                Text("¿Hay algún número específico que sí quieres que te llame? Agrégalo como excepción.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -319,8 +334,9 @@ struct AddExceptionSheet: View {
     let onCancel: () -> Void
     
     @State private var selectedMode = 0 // 0: Specific number, 1: Prefix
-    @State private var prefix = "600"
+    @State private var prefix = "601" // Changed from 600 to avoid blocked prefix
     @State private var specificNumber = ""
+    @State private var showingPrefixError = false
     
     var body: some View {
         NavigationStack {
@@ -343,7 +359,7 @@ struct AddExceptionSheet: View {
                             .fontWeight(.bold)
                             .multilineTextAlignment(.center)
                         
-                        Text("Permite que ciertos números 600 puedan llamarte")
+                        Text("Permite que ciertos números específicos puedan llamarte")
                             .font(.body)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -388,7 +404,7 @@ struct AddExceptionSheet: View {
                                         .background(.quaternary)
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
                                     
-                                    TextField("600123456789", text: $specificNumber)
+                                    TextField("987654321", text: $specificNumber)
                                         .font(.title2)
                                         .keyboardType(.phonePad)
                                         .padding(.horizontal, 16)
@@ -398,7 +414,7 @@ struct AddExceptionSheet: View {
                                         .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
                                 }
                                 
-                                Text("Ejemplo: 600123456789")
+                                Text("Ejemplo: 987654321 (no usar 600 o 809)")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -419,7 +435,7 @@ struct AddExceptionSheet: View {
                                         .background(.quaternary)
                                         .clipShape(RoundedRectangle(cornerRadius: 10))
                                     
-                                    TextField("600123", text: $prefix)
+                                    TextField("601123", text: $prefix)
                                         .font(.title2)
                                         .keyboardType(.phonePad)
                                         .padding(.horizontal, 16)
@@ -491,6 +507,14 @@ struct AddExceptionSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar") {
                         // Set the phoneNumber based on selected mode
+                        let numberToCheck = selectedMode == 0 ? specificNumber : prefix
+                        
+                        // Check for blocked prefixes (600 or 809)
+                        if isRestrictedPrefix(numberToCheck) {
+                            showingPrefixError = true
+                            return
+                        }
+                        
                         if selectedMode == 0 {
                             phoneNumber = specificNumber
                         } else {
@@ -502,7 +526,21 @@ struct AddExceptionSheet: View {
                     .fontWeight(.semibold)
                 }
             }
+            .alert("Prefijo No Permitido", isPresented: $showingPrefixError) {
+                Button("OK") { }
+            } message: {
+                Text("Los números 600 y 809 son gestionados automáticamente por el sistema de bloqueo. Para permitir un número específico de estos prefijos, configúralo en las opciones de bloqueo automático.")
+            }
         }
+    }
+    
+    private func isRestrictedPrefix(_ number: String) -> Bool {
+        let cleanNumber = number.replacingOccurrences(of: "+56", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        
+        // Check if number starts with 600 or 809
+        return cleanNumber.hasPrefix("600") || cleanNumber.hasPrefix("809")
     }
 }
 

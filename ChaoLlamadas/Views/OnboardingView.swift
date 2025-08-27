@@ -28,7 +28,7 @@ struct OnboardingView: View {
             TabView(selection: $currentPage) {
                 OnboardingPageView(
                     title: "📱 ¡Bienvenido a ChaoLlamadas!",
-                    description: "🛡️ Tu aplicación para bloquear llamadas no deseadas de números 600 en Chile",
+                    description: "🛡️ Tu aplicación para bloquear llamadas no deseadas de números 600 o 809 en Chile",
                     systemImage: "phone.badge.checkmark",
                     page: 0,
                     backgroundColor: .blue
@@ -37,7 +37,7 @@ struct OnboardingView: View {
                 
                 OnboardingPageView(
                     title: "🇨🇱 Nueva Ley Chilena",
-                    description: "⚖️ Según la nueva ley, los números que comienzan con 600 son utilizados por empresas para ventas telefónicas. Esta app los bloquea automáticamente.",
+                    description: "⚖️ Según la nueva ley, los números que comienzan con 600 o 809 son utilizados por empresas para ventas telefónicas. Esta app los bloquea automáticamente.",
                     systemImage: "shield.checkered",
                     page: 1,
                     backgroundColor: .purple
@@ -49,15 +49,19 @@ struct OnboardingView: View {
                     description: "✅ Gestiona excepciones, revisa números bloqueados y mantén el control total de tus llamadas.",
                     systemImage: "slider.horizontal.3",
                     page: 2,
-                    backgroundColor: .green,
-                    isLast: true,
+                    backgroundColor: .green
+                )
+                .tag(2)
+                
+                PrefixSelectionOnboardingView(
+                    page: 3,
                     onComplete: {
                         withAnimation(.easeInOut(duration: 0.5)) {
                             hasCompletedOnboarding = true
                         }
                     }
                 )
-                .tag(2)
+                .tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .animation(.easeInOut, value: currentPage)
@@ -65,17 +69,19 @@ struct OnboardingView: View {
             VStack {
                 Spacer()
                 
-                // Custom page indicator
-                HStack(spacing: 8) {
-                    ForEach(0..<3, id: \.self) { index in
-                        Circle()
-                            .fill(currentPage == index ? Color.primary : Color.primary.opacity(0.3))
-                            .frame(width: 8, height: 8)
-                            .scaleEffect(currentPage == index ? 1.2 : 1.0)
-                            .animation(.easeInOut(duration: 0.3), value: currentPage)
+                // Custom page indicator - hide on last page
+                if currentPage < 3 {
+                    HStack(spacing: 8) {
+                        ForEach(0..<4, id: \.self) { index in
+                            Circle()
+                                .fill(currentPage == index ? Color.primary : Color.primary.opacity(0.3))
+                                .frame(width: 8, height: 8)
+                                .scaleEffect(currentPage == index ? 1.2 : 1.0)
+                                .animation(.easeInOut(duration: 0.3), value: currentPage)
+                        }
                     }
+                    .padding(.bottom, 50)
                 }
-                .padding(.bottom, 50)
             }
         }
     }
@@ -149,6 +155,157 @@ struct OnboardingPageView: View {
             }
             
             Spacer()
+        }
+    }
+}
+
+struct PrefixSelectionOnboardingView: View {
+    @StateObject private var callBlockingService = CallBlockingService.shared
+    @State private var is600Enabled = true  // Default to enabled
+    @State private var is809Enabled = false // Default to disabled
+    let page: Int
+    let onComplete: () -> Void
+    
+    var body: some View {
+        ZStack {
+            VStack(spacing: 30) {
+                Spacer()
+                
+                // Icon with liquid glass effect
+                ZStack {
+                    Circle()
+                        .fill(.orange.opacity(0.3))
+                        .frame(width: 100, height: 100)
+                        .background(
+                            Circle()
+                                .fill(.orange.opacity(0.1))
+                                .frame(width: 120, height: 120)
+                        )
+                    
+                    Image(systemName: "phone.connection")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.orange)
+                }
+                
+                VStack(spacing: 16) {
+                    Text("📞 Configuración Inicial")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.primary)
+                    
+                    Text("Selecciona qué tipos de números deseas bloquear automáticamente:")
+                        .font(.title3)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 30)
+                }
+                
+                VStack(spacing: 12) {
+                    // 600 prefix toggle
+                    PrefixToggleRow(
+                        prefix: "600",
+                        title: "Números 600 (Chile)",
+                        description: "Números comerciales y de telemarketing que fueron solicitadas",
+                        isEnabled: $is600Enabled,
+                        color: .blue
+                    )
+                    
+                    // 809 prefix toggle  
+                    PrefixToggleRow(
+                        prefix: "809",
+                        title: "Números 809 ",
+                        description: "Se utiliza para identificar llamadas no deseadas, como telemarketing o campañas publicitarias no autorizadas",
+                        isEnabled: $is809Enabled,
+                        color: .orange
+                    )
+                }
+                .padding(.horizontal, 20)
+                
+                Spacer()
+                
+                // Finish button
+                Button(action: {
+                    // Save both settings at once to avoid rate limiting issues
+                    print("🔧 [Onboarding] Saving settings: 600=\(is600Enabled), 809=\(is809Enabled)")
+                    callBlockingService.setBothPrefixBlocking(enabled600: is600Enabled, enabled809: is809Enabled)
+                    onComplete()
+                }) {
+                    HStack {
+                        Text("Finalizar Configuración")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(LinearGradient(
+                                colors: [.orange, .red.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ))
+                    )
+                }
+                .padding(.horizontal, 30)
+                .padding(.bottom, 50)
+            }
+            .onAppear {
+                // Initialize local state from service
+                is600Enabled = callBlockingService.is600BlockingEnabled
+                is809Enabled = callBlockingService.is809BlockingEnabled
+            }
+        }
+    }
+}
+
+struct PrefixToggleRow: View {
+    let prefix: String
+    let title: String
+    let description: String
+    @Binding var isEnabled: Bool
+    let color: Color
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(isEnabled ? color.opacity(0.2) : Color.gray.opacity(0.2))
+                    .frame(width: 50, height: 50)
+                
+                Text(prefix)
+                    .font(.headline)
+                    .fontWeight(.bold)
+                    .foregroundStyle(isEnabled ? color : .gray)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
+                
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+            
+            Toggle("", isOn: $isEnabled)
+                .tint(color)
+        }
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(isEnabled ? color.opacity(0.08) : Color.gray.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(isEnabled ? color.opacity(0.3) : Color.gray.opacity(0.2), lineWidth: 1)
+                )
         }
     }
 }

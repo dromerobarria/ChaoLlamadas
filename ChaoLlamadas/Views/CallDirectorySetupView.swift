@@ -10,6 +10,7 @@ import SwiftUI
 struct CallDirectorySetupView: View {
     @StateObject private var callBlockingService = CallBlockingService.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var showExtensionLogs = false
     
     var body: some View {
         NavigationStack {
@@ -44,6 +45,9 @@ struct CallDirectorySetupView: View {
                     status: callBlockingService.callDirectoryStatus
                 )
                 
+                // Debug section - Extension execution status
+                ExtensionDebugCard()
+                
                 // Instructions
                 if !callBlockingService.isCallDirectoryEnabled {
                     InstructionsCard()
@@ -55,7 +59,7 @@ struct CallDirectorySetupView: View {
                 VStack(spacing: 12) {
                     if !callBlockingService.isCallDirectoryEnabled {
                         Button(action: {
-                            callBlockingService.enableCallBlocking()
+                            callBlockingService.openCallSettings()
                         }) {
                             HStack {
                                 Image(systemName: "gear")
@@ -82,6 +86,62 @@ struct CallDirectorySetupView: View {
                         .background(.ultraThinMaterial)
                         .clipShape(RoundedRectangle(cornerRadius: 15))
                     }
+                    
+                    Button(action: {
+                        callBlockingService.diagnoseSetup()
+                    }) {
+                        HStack {
+                            Image(systemName: "stethoscope")
+                            Text("Diagnosticar Problemas")
+                        }
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                    }
+                    
+                    Button(action: {
+                        callBlockingService.enableCallBlocking()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise.circle")
+                            Text("Forzar Recarga Extension")
+                        }
+                        .foregroundColor(.blue)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                    }
+                    
+                    Button(action: {
+                        clearAllCallKitData()
+                    }) {
+                        HStack {
+                            Image(systemName: "trash.circle")
+                            Text("Limpiar CallKit Cache")
+                        }
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                    }
+                    
+                    Button(action: {
+                        showExtensionLogs.toggle()
+                    }) {
+                        HStack {
+                            Image(systemName: "doc.text")
+                            Text("Ver Logs Extension")
+                        }
+                        .foregroundColor(.green)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 15))
+                    }
                 }
                 .padding(.horizontal, 20)
             }
@@ -91,6 +151,63 @@ struct CallDirectorySetupView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Listo") {
+                        dismiss()
+                    }
+                }
+            }
+            .sheet(isPresented: $showExtensionLogs) {
+                ExtensionLogsView()
+            }
+        }
+    }
+    
+    private func clearAllCallKitData() {
+        print("🧹 [CallKit] Clearing all CallKit data and cache")
+        
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            print("❌ [CallKit] Failed to access App Group")
+            return
+        }
+        
+        // Clear all stored data
+        userDefaults.removeObject(forKey: "manuallyBlockedNumbers")
+        userDefaults.removeObject(forKey: "previouslyBlockedNumbers")
+        userDefaults.removeObject(forKey: "forceFullReload")
+        userDefaults.removeObject(forKey: "extensionLogs")
+        userDefaults.removeObject(forKey: "lastExtensionError")
+        userDefaults.removeObject(forKey: "lastExtensionErrorDate")
+        userDefaults.synchronize()
+        
+        print("✅ [CallKit] All CallKit data cleared")
+        
+        // Force a reload to reset everything
+        callBlockingService.enableCallBlocking()
+    }
+    
+}
+
+struct ExtensionLogsView: View {
+    @StateObject private var callBlockingService = CallBlockingService.shared
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(callBlockingService.getExtensionLogs(), id: \.self) { log in
+                        Text(log)
+                            .font(.caption)
+                            .padding(.horizontal)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Extension Logs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cerrar") {
                         dismiss()
                     }
                 }
@@ -154,7 +271,7 @@ struct InstructionsCard: View {
                 InstructionStep(
                     number: "3",
                     title: "Activar ChaoLlamadas",
-                    description: "Activa el interruptor junto a 'ChaoLlamadas'"
+                    description: "CRÍTICO: Activa el interruptor junto a 'ChaoLlamadas' - Sin esto NO funcionará el bloqueo"
                 )
             }
         }
@@ -199,6 +316,79 @@ struct InstructionStep: View {
             
             Spacer()
         }
+    }
+}
+
+struct ExtensionDebugCard: View {
+    @State private var extensionRunCount = 0
+    @State private var lastRunTime: Date?
+    @State private var extensionProof = "No ejecutada aún"
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "ladybug")
+                    .foregroundColor(.orange)
+                    .font(.title3)
+                
+                Text("Estado de Extension")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                Button(action: refreshStatus) {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundColor(.blue)
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Ejecuciones:")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Spacer()
+                    Text("\(extensionRunCount)")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(extensionRunCount > 0 ? .green : .red)
+                }
+                
+                if let lastRunTime = lastRunTime {
+                    HStack {
+                        Text("Última ejecución:")
+                            .font(.caption)
+                        Spacer()
+                        Text(lastRunTime.formatted(.dateTime.hour().minute().second()))
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                }
+                
+                Text(extensionProof)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 15))
+        .onAppear {
+            refreshStatus()
+        }
+    }
+    
+    private func refreshStatus() {
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            extensionProof = "Error: App Group no accesible"
+            return
+        }
+        
+        extensionRunCount = userDefaults.integer(forKey: "extensionRunCount")
+        lastRunTime = userDefaults.object(forKey: "lastExtensionRunTime") as? Date
+        extensionProof = userDefaults.string(forKey: "extensionProof") ?? "No ejecutada aún"
     }
 }
 

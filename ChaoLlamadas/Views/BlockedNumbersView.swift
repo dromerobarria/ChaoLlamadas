@@ -7,15 +7,73 @@
 
 import SwiftUI
 import SwiftData
+import TipKit
+
+// Helper struct to combine blocked calls and manually added numbers
+struct BlockedItem: Identifiable {
+    let id: String
+    let phoneNumber: String
+    let date: Date
+    let type: BlockedItemType
+    let callerName: String?
+}
+
+enum BlockedItemType {
+    case actualCall
+    case manuallyAdded
+}
 
 struct BlockedNumbersView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \CallRecord.callDate, order: .reverse) private var callRecords: [CallRecord]
+    @Query(sort: \BlockedNumber.dateAdded, order: .reverse) private var blockedNumbers: [BlockedNumber]
     @StateObject private var callBlockingService = CallBlockingService.shared
+    @StateObject private var tipManager = CallBlockingTipManager.shared
     @State private var showingSetup = false
+    
+    private let callKitSetupTip = CallKitSetupTip()
+    private let blockingAppsWarningTip = BlockingAppsWarningTip()
     
     var blockedCalls: [CallRecord] {
         callRecords.filter { $0.wasBlocked }
+    }
+    
+    // Combine actual blocked calls and manually added numbers for display
+    var allBlockedItems: [BlockedItem] {
+        var items: [BlockedItem] = []
+        
+        // Add actual blocked calls
+        for call in blockedCalls {
+            items.append(BlockedItem(
+                id: call.phoneNumber + String(call.callDate.timeIntervalSince1970),
+                phoneNumber: call.phoneNumber,
+                date: call.callDate,
+                type: .actualCall,
+                callerName: call.callerName
+            ))
+        }
+        
+        // Add manually blocked numbers (that haven't had actual calls blocked yet)
+        for number in blockedNumbers where number.isBlocked {
+            // Only add if there's no recent blocked call for this number
+            let normalizedManual = number.phoneNumber.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "")
+            let hasRecentCall = blockedCalls.contains { call in
+                let normalizedCall = call.phoneNumber.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "")
+                return normalizedCall.contains(normalizedManual) || normalizedManual.contains(normalizedCall)
+            }
+            
+            if !hasRecentCall {
+                items.append(BlockedItem(
+                    id: "manual-" + number.phoneNumber,
+                    phoneNumber: number.phoneNumber,
+                    date: number.dateAdded,
+                    type: .manuallyAdded,
+                    callerName: nil
+                ))
+            }
+        }
+        
+        return items.sorted { $0.date > $1.date }
     }
     
     var body: some View {
@@ -33,41 +91,40 @@ struct BlockedNumbersView: View {
                 )
                 .ignoresSafeArea()
                 
-                VStack(spacing: 20) {
-                    // Setup button if not enabled
-                    if !callBlockingService.isCallDirectoryEnabled {
-                        SetupPromptCard {
-                            showingSetup = true
-                        }
-                    }
-                    
-                    // Header card with statistics
-                    StatsCard()
-                    
-                    // Auto-block notice
-                    AutoBlockNoticeCard()
-                    
-                    // Blocked calls list
-                    if blockedCalls.isEmpty {
-                        EmptyStateView()
-                    } else {
-                        ScrollView {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        
+                        
+                        // Header card with statistics
+                        StatsCard()
+                        
+                        // Auto-block notice
+                        AutoBlockNoticeCard()
+                        
+                        
+                        // Blocked items list (calls + manual numbers)
+                        if allBlockedItems.isEmpty {
+                            EmptyStateView()
+                                .padding(.top, 40)
+                        } else {
                             LazyVStack(spacing: 12) {
-                                ForEach(blockedCalls) { call in
-                                    BlockedCallCard(call: call)
+                                ForEach(allBlockedItems) { item in
+                                    BlockedItemCard(item: item)
                                 }
                             }
-                            .padding(.horizontal, 20)
                         }
+                        
+                        // Bottom padding for smaller devices
+                        Color.clear.frame(height: 20)
                     }
-                    
-                    Spacer()
+                    .padding(.horizontal, 20)
                 }
             }
             .navigationTitle("Llamadas Bloqueadas")
             .navigationBarTitleDisplayMode(.large)
             .onAppear {
                 setupSampleCallData()
+                callBlockingService.checkForNewBlockedCalls()
             }
             .sheet(isPresented: $showingSetup) {
                 CallDirectorySetupView()
@@ -75,58 +132,38 @@ struct BlockedNumbersView: View {
         }
     }
     
+    private func openCallKitSettings() {
+        callBlockingService.openCallSettings()
+    }
+    
     private func setupSampleCallData() {
-        // Add sample call data if none exists
-        if callRecords.isEmpty {
-            let sampleCalls = [
-                CallRecord(phoneNumber: "60012345678", callDate: Date().addingTimeInterval(-3600), wasBlocked: true, callerName: "Telemarketing"),
-                CallRecord(phoneNumber: "60087654321", callDate: Date().addingTimeInterval(-7200), wasBlocked: true, callerName: "Ventas"),
-                CallRecord(phoneNumber: "60098765432", callDate: Date().addingTimeInterval(-10800), wasBlocked: true, callerName: "Promociones"),
-                CallRecord(phoneNumber: "60011223344", callDate: Date().addingTimeInterval(-14400), wasBlocked: true, callerName: "Ofertas"),
-                CallRecord(phoneNumber: "60055667788", callDate: Date().addingTimeInterval(-18000), wasBlocked: true, callerName: "Marketing"),
-                CallRecord(phoneNumber: "60033445566", callDate: Date().addingTimeInterval(-21600), wasBlocked: true, callerName: "Encuestas"),
-                CallRecord(phoneNumber: "60077889900", callDate: Date().addingTimeInterval(-25200), wasBlocked: true, callerName: "Productos")
-            ]
-            
-            for call in sampleCalls {
-                modelContext.insert(call)
+        // Clear any old fake/sample data that might exist from previous versions
+        clearFakeData()
+    }
+    
+    private func clearFakeData() {
+        // Remove any fake data that was added in previous versions
+        let fakeNumbers = [
+            "60012345678",
+            "60087654321", 
+            "60098765432",
+            "60011223344",
+            "60055667788",
+            "60033445566",
+            "60077889900"
+        ]
+        
+        for call in callRecords {
+            let cleanNumber = call.phoneNumber.replacingOccurrences(of: "+56", with: "")
+            if fakeNumbers.contains(cleanNumber) {
+                modelContext.delete(call)
             }
-            
-            try? modelContext.save()
         }
+        
+        try? modelContext.save()
     }
 }
 
-struct SetupPromptCard: View {
-    let action: () -> Void
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title2)
-                .foregroundStyle(.orange)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Configuración Requerida")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                
-                Text("Habilita el bloqueo de llamadas en Configuración de iOS")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            
-            Spacer()
-            
-            Button("Configurar", action: action)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-        }
-        .padding(16)
-        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 20)
-    }
-}
 
 struct StatsCard: View {
     @StateObject private var callBlockingService = CallBlockingService.shared
@@ -179,7 +216,7 @@ struct StatsCard: View {
                     .frame(height: 40)
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("1M+")
+                    Text("\(callBlockingService.getBlockedNumbersCount())")
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundStyle(.primary)
@@ -202,6 +239,8 @@ struct StatsCard: View {
 }
 
 struct AutoBlockNoticeCard: View {
+    @StateObject private var callBlockingService = CallBlockingService.shared
+    
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "info.circle")
@@ -209,12 +248,12 @@ struct AutoBlockNoticeCard: View {
                 .foregroundStyle(.blue)
             
             VStack(alignment: .leading, spacing: 4) {
-                Text("Bloqueo Automático 600")
+                Text("Bloqueo Automático")
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundStyle(.primary)
                 
-                Text("Todos los números que empiecen con 600 son bloqueados automáticamente según la ley chilena")
+                Text("Los \(callBlockingService.getActivePrefixesText()) son bloqueados automáticamente")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
@@ -233,6 +272,7 @@ struct AutoBlockNoticeCard: View {
 
 struct BlockedCallCard: View {
     let call: CallRecord
+    @StateObject private var callBlockingService = CallBlockingService.shared
     
     var body: some View {
         HStack(spacing: 12) {
@@ -278,7 +318,7 @@ struct BlockedCallCard: View {
                     .fontWeight(.medium)
                     .foregroundStyle(.green)
                 
-                Text("600")
+                Text(callBlockingService.getActivePrefixes().joined(separator: "+"))
                     .font(.caption2)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
@@ -292,7 +332,10 @@ struct BlockedCallCard: View {
     }
 }
 
+
 struct EmptyStateView: View {
+    @StateObject private var callBlockingService = CallBlockingService.shared
+    
     var body: some View {
         VStack(spacing: 24) {
             Image(systemName: "shield.checkered")
@@ -305,7 +348,7 @@ struct EmptyStateView: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(.primary)
                 
-                Text("Los números 600 se bloquearán automáticamente cuando intenten llamarte. Tu teléfono está protegido.")
+                Text("Los \(callBlockingService.getActivePrefixesText()) se bloquearán automáticamente cuando intenten llamarte. Tu teléfono está protegido.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -319,6 +362,87 @@ struct EmptyStateView: View {
         }
         .padding(.top, 60)
         .padding(.horizontal, 20)
+    }
+}
+
+struct BlockedItemCard: View {
+    let item: BlockedItem
+    @Environment(\.modelContext) private var modelContext
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // Status indicator
+            ZStack {
+                Circle()
+                    .fill(item.type == .actualCall ? .red.opacity(0.2) : .orange.opacity(0.2))
+                    .frame(width: 40, height: 40)
+                
+                Image(systemName: item.type == .actualCall ? "phone.down.fill" : "shield.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(item.type == .actualCall ? .red : .orange)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(formatPhoneNumber(item.phoneNumber))
+                        .font(.headline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary)
+                    
+                    Spacer()
+                    
+                    Text(formatDate(item.date))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                
+                HStack {
+                    if let callerName = item.callerName {
+                        Text(callerName)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(item.type == .actualCall ? "Llamada bloqueada" : "Número manual")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    if item.type == .manuallyAdded {
+                        Text("MANUAL")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.orange)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 20)
+    }
+    
+    private func formatPhoneNumber(_ number: String) -> String {
+        let cleaned = number.replacingOccurrences(of: "+56", with: "")
+        if cleaned.count >= 9 {
+            let firstPart = String(cleaned.prefix(1))
+            let secondPart = String(cleaned.dropFirst(1).prefix(4))
+            let thirdPart = String(cleaned.dropFirst(5).prefix(4))
+            return "+56 \(firstPart) \(secondPart) \(thirdPart)"
+        }
+        return "+56 \(cleaned)"
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .short
+        return formatter.string(from: date)
     }
 }
 

@@ -13,9 +13,9 @@
 
 // Onboarding
 "onboarding_title_1" = "¡Bienvenido a ChaoLlamadas!";
-"onboarding_description_1" = "Tu aplicación para bloquear llamadas no deseadas de números 600 en Chile";
+"onboarding_description_1" = "Tu aplicación para bloquear llamadas no deseadas de números 600 o 809 en Chile";
 "onboarding_title_2" = "Nueva Ley Chilena";
-"onboarding_description_2" = "Según la nueva ley, los números que comienzan con 600 son utilizados por empresas para ventas telefónicas. Esta app los bloquea automáticamente.";
+"onboarding_description_2" = "Según la nueva ley, los números que comienzan con 600 o 809 son utilizados por empresas para ventas telefónicas. Esta app los bloquea automáticamente.";
 "onboarding_title_3" = "Control Total";
 "onboarding_description_3" = "Gestiona excepciones, revisa números bloqueados y mantén el control de tus llamadas.";
 "start" = "Comenzar";

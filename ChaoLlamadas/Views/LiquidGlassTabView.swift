@@ -14,6 +14,10 @@ struct LiquidGlassTabView: View {
                 BlockedNumbersView()
             }
             
+            Tab("Manual", systemImage: "hand.raised.fill") {
+                ManualBlockView()
+            }
+            
             Tab("Excepciones", systemImage: "checkmark.shield") {
                 ExceptionsView()
             }

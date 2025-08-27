@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import TipKit
 
 struct SettingsView: View {
     @StateObject private var callBlockingService = CallBlockingService.shared
-    @State private var is600BlockingEnabled = true
+    @StateObject private var tipManager = CallBlockingTipManager.shared
     @State private var showingSetup = false
+    @State private var showingBlockingDisabledAlert = false
     
     var body: some View {
         NavigationStack {
@@ -27,16 +29,16 @@ struct SettingsView: View {
                 
                 // Blocking Settings Section
                 Section {
-                    Toggle(isOn: $is600BlockingEnabled) {
+                    Toggle(isOn: $callBlockingService.is600BlockingEnabled) {
                         HStack(spacing: 12) {
                             ZStack {
                                 Circle()
-                                    .fill(is600BlockingEnabled ? .green.opacity(0.2) : .gray.opacity(0.2))
+                                    .fill(callBlockingService.is600BlockingEnabled ? .green.opacity(0.2) : .gray.opacity(0.2))
                                     .frame(width: 40, height: 40)
                                 
-                                Image(systemName: is600BlockingEnabled ? "shield.checkered" : "shield.slash")
+                                Image(systemName: callBlockingService.is600BlockingEnabled ? "shield.checkered" : "shield.slash")
                                     .font(.system(size: 18))
-                                    .foregroundStyle(is600BlockingEnabled ? .green : .gray)
+                                    .foregroundStyle(callBlockingService.is600BlockingEnabled ? .green : .gray)
                             }
                             
                             VStack(alignment: .leading, spacing: 2) {
@@ -51,48 +53,86 @@ struct SettingsView: View {
                         }
                     }
                     .tint(.blue)
-                    
-                    if is600BlockingEnabled && !callBlockingService.isCallDirectoryEnabled {
-                        SetupInstructionsCard()
+                    .onChange(of: callBlockingService.is600BlockingEnabled) { oldValue, newValue in
+                        // Only call if actually different (prevents loops)
+                        if oldValue != newValue {
+                            callBlockingService.set600Blocking(enabled: newValue)
+                        }
                     }
                     
-                    if is600BlockingEnabled {
-                        Button(action: { showingSetup = true }) {
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    Circle()
-                                        .fill(.blue.opacity(0.2))
-                                        .frame(width: 40, height: 40)
-                                    
-                                    Image(systemName: "gear")
-                                        .font(.system(size: 18))
-                                        .foregroundStyle(.blue)
-                                }
+                    // 809 prefix blocking toggle
+                    Toggle(isOn: $callBlockingService.is809BlockingEnabled) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(callBlockingService.is809BlockingEnabled ? .orange.opacity(0.2) : .gray.opacity(0.2))
+                                    .frame(width: 40, height: 40)
                                 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Configurar CallKit")
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-                                    
-                                    Text("Configurar bloqueo en iOS")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
+                                Image(systemName: callBlockingService.is809BlockingEnabled ? "shield.checkered" : "shield.slash")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(callBlockingService.is809BlockingEnabled ? .orange : .gray)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Bloquear Números 809")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
                                 
-                                Spacer()
-                                
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14))
+                                Text("República Dominicana y llamadas internacionales")
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .buttonStyle(.plain)
                     }
+                    .tint(.orange)
+                    .onChange(of: callBlockingService.is809BlockingEnabled) { oldValue, newValue in
+                        // Only call if actually different (prevents loops)
+                        if oldValue != newValue {
+                            callBlockingService.set809Blocking(enabled: newValue)
+                        }
+                    }
+                    
+                    // Notification Settings
+                    Toggle(isOn: $callBlockingService.blockNotificationsEnabled) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(.blue.opacity(0.2))
+                                    .frame(width: 40, height: 40)
+                                
+                                Image(systemName: "bell.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(.blue)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Notificar Llamadas Bloqueadas")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                
+                                Text("Recibe una notificación cuando se bloquee una llamada")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .tint(.blue)
+                    .onChange(of: callBlockingService.blockNotificationsEnabled) { _, newValue in
+                        callBlockingService.setBlockNotifications(enabled: newValue)
+                    }
+                    
+                    // Setup instructions for all users
+                    CallKitSetupInstructionsCard()
+                    
+                    // Warning about other blocking apps
+                    BlockingAppsWarningCard()
+                    
                 } header: {
                     Text("Bloqueo de Llamadas")
                         .font(.headline)
                         .foregroundStyle(.primary)
                 }
+                
                 
                 // Legal Section
                 Section {
@@ -155,11 +195,25 @@ struct SettingsView: View {
                 .ignoresSafeArea()
             }
             .onAppear {
-                callBlockingService.diagnoseSetup()
                 callBlockingService.checkCallDirectoryStatus()
+                
+                // Check if blocking is disabled and show alert
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    if !callBlockingService.isCallDirectoryEnabled {
+                        showingBlockingDisabledAlert = true
+                    }
+                }
             }
             .sheet(isPresented: $showingSetup) {
                 CallDirectorySetupView()
+            }
+            .alert("Bloqueo de Llamadas Desactivado", isPresented: $showingBlockingDisabledAlert) {
+                Button("Ir a Configuración") {
+                    callBlockingService.openCallSettings()
+                }
+                Button("Más Tarde", role: .cancel) { }
+            } message: {
+                Text("El bloqueo de llamadas no está activo. Para bloquear llamadas spam, necesitas activar ChaoLlamadas en Configuración > Teléfono > Bloqueo e Identificación de Llamadas.")
             }
         }
     }
@@ -176,6 +230,7 @@ struct SettingsView: View {
             UIApplication.shared.open(url)
         }
     }
+    
 }
 
 struct AppHeaderSettingsCard: View {
@@ -257,6 +312,73 @@ struct SettingsLinkRow: View {
     }
 }
 
+struct CallKitSetupInstructionsCard: View {
+    @StateObject private var callBlockingService = CallBlockingService.shared
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Image(systemName: callBlockingService.isCallDirectoryEnabled ? "checkmark.circle.fill" : "info.circle.fill")
+                    .foregroundStyle(callBlockingService.isCallDirectoryEnabled ? .green : .blue)
+                    .font(.title2)
+                
+                Text(callBlockingService.isCallDirectoryEnabled ? "Configuración Completa" : "Configuración Requerida")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.primary)
+            }
+            
+            if !callBlockingService.isCallDirectoryEnabled {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Para activar el bloqueo de llamadas, sigue estos pasos:")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        StepRow(number: "1", text: "Ve a Configuración de iOS")
+                        StepRow(number: "2", text: "Toca \"Teléfono\"")
+                        StepRow(number: "3", text: "Toca \"Bloqueo e Identificación de Llamadas\"")
+                        StepRow(number: "4", text: "Activa el interruptor de \"ChaoLlamadas\"")
+                    }
+                    
+                    Button(action: {
+                        callBlockingService.openCallSettings()
+                    }) {
+                        HStack {
+                            Image(systemName: "gear")
+                            Text("Abrir Configuración de iOS")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(.blue)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .padding(.top, 8)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.caption)
+                    
+                    Text("El bloqueo de llamadas está activo y funcionando correctamente")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .background(callBlockingService.isCallDirectoryEnabled ? .green.opacity(0.1) : .blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(callBlockingService.isCallDirectoryEnabled ? .green.opacity(0.3) : .blue.opacity(0.3), lineWidth: 1)
+        )
+    }
+}
+
 struct SetupInstructionsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -329,6 +451,49 @@ struct StepRow: View {
         }
     }
 }
+
+struct BlockingAppsWarningCard: View {
+    @AppStorage("hasSeenBlockingAppsWarning") private var hasSeenWarning = false
+    
+    var body: some View {
+        if !hasSeenWarning {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Otras Apps de Bloqueo")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.primary)
+                        
+                        Text("Si tienes TrueCaller u otras apps de bloqueo activadas, pueden interferir con ChaoLlamadas. Desactívalas en Configuración > Teléfono > Bloqueo e Identificación")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    
+                    Spacer()
+                }
+                
+                Button("Entendido") {
+                    hasSeenWarning = true
+                }
+                .font(.caption)
+                .foregroundStyle(.blue)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(12)
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.orange.opacity(0.1))
+            }
+        }
+    }
+}
+
 
 #Preview {
     SettingsView()

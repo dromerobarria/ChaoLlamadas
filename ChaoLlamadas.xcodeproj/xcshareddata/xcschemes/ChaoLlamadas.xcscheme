@@ -21,6 +21,20 @@
                ReferencedContainer = "container:ChaoLlamadas.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "9EE030242E57637E00B21BC5"
+               BuildableName = "CallDirectoryExtension.appex"
+               BlueprintName = "CallDirectoryExtension"
+               ReferencedContainer = "container:ChaoLlamadas.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
