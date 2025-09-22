@@ -2,7 +2,7 @@
 //  ChaoLlamadasWidget.swift
 //  ChaoLlamadasWidget
 //
-//  Created by Daniel Romero on 25-08-25.
+//  Created by Daniel Romero on 27-08-25.
 //
 
 import WidgetKit
@@ -50,22 +50,6 @@ struct Provider: TimelineProvider {
         }
         
         return userDefaults.integer(forKey: "totalBlockedCallsCount")
-    }
-    
-    private func getActivePrefixesText() -> String {
-        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
-            return "600"  // Default fallback
-        }
-        
-        let prefixes = userDefaults.stringArray(forKey: "activePrefixes") ?? ["600"]
-        
-        if prefixes.isEmpty {
-            return "Sin prefijos"
-        } else if prefixes.count == 1 {
-            return prefixes[0]
-        } else {
-            return prefixes.joined(separator: "+")
-        }
     }
 }
 
@@ -120,12 +104,12 @@ struct SmallWidgetView: View {
                     .minimumScaleFactor(0.8)
                     .accessibilityLabel("\(entry.blockedCallsCount) llamadas bloqueadas")
                 
-                Text(entry.blockedCallsCount == 1 ? "Llamada\nBloqueada" : "Llamadas\nBloqueadas")
-                    .font(.caption2)
+                Text(entry.blockedCallsCount == 1 ? "Bloqueada" : "Bloqueadas")
+                    .font(.caption)
                     .fontWeight(.medium)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .lineLimit(1)
             }
             
             Spacer()
@@ -146,8 +130,13 @@ struct SmallWidgetView: View {
         }
         .padding(16)
         .background {
-            ContainerRelativeShape()
-                .fill(.regularMaterial)
+            if #available(iOS 17.0, *) {
+                ContainerRelativeShape()
+                    .fill(.regularMaterial)
+            } else {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.regularMaterial)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("ChaoLlamadas. \(entry.blockedCallsCount) llamadas bloqueadas. Protección activa.")
@@ -229,8 +218,13 @@ struct MediumWidgetView: View {
         }
         .padding(16)
         .background {
-            ContainerRelativeShape()
-                .fill(.regularMaterial)
+            if #available(iOS 17.0, *) {
+                ContainerRelativeShape()
+                    .fill(.regularMaterial)
+            } else {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.regularMaterial)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("ChaoLlamadas. \(entry.blockedCallsCount) llamadas bloqueadas. Protección activa. \(formatLastUpdate())")
@@ -241,6 +235,27 @@ struct MediumWidgetView: View {
         formatter.timeStyle = .short
         return "Actualizado: \(formatter.string(from: entry.date))"
     }
+    
+    private func getActivePrefixesText() -> String {
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            return "600"  // Default fallback
+        }
+        
+        let is600Enabled = userDefaults.bool(forKey: "is600BlockingEnabled")
+        let is809Enabled = userDefaults.bool(forKey: "is809BlockingEnabled")
+        
+        var prefixes: [String] = []
+        if is600Enabled { prefixes.append("600") }
+        if is809Enabled { prefixes.append("809") }
+        
+        if prefixes.isEmpty {
+            return "Sin prefijos"
+        } else if prefixes.count == 1 {
+            return prefixes[0]
+        } else {
+            return prefixes.joined(separator: "+")
+        }
+    }
 }
 
 struct ChaoLlamadasWidget: Widget {
@@ -248,7 +263,14 @@ struct ChaoLlamadasWidget: Widget {
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: Provider()) { entry in
-            ChaoLlamadasWidgetEntryView(entry: entry)
+            if #available(iOS 17.0, *) {
+                ChaoLlamadasWidgetEntryView(entry: entry)
+                    .containerBackground(.fill.tertiary, for: .widget)
+            } else {
+                ChaoLlamadasWidgetEntryView(entry: entry)
+                    .padding()
+                    .background()
+            }
         }
         .configurationDisplayName("Llamadas Bloqueadas")
         .description("Muestra el número total de llamadas spam bloqueadas por ChaoLlamadas")
@@ -256,28 +278,9 @@ struct ChaoLlamadasWidget: Widget {
     }
 }
 
-struct ChaoLlamadasWidget_Previews: PreviewProvider {
-    static var previews: some View {
-        Group {
-            // Small widget preview
-            ChaoLlamadasWidgetEntryView(entry: SimpleEntry(date: Date(), blockedCallsCount: 42))
-                .previewContext(WidgetPreviewContext(family: .systemSmall))
-                .previewDisplayName("Small Widget")
-            
-            // Medium widget preview
-            ChaoLlamadasWidgetEntryView(entry: SimpleEntry(date: Date(), blockedCallsCount: 127))
-                .previewContext(WidgetPreviewContext(family: .systemMedium))
-                .previewDisplayName("Medium Widget")
-            
-            // Zero count preview
-            ChaoLlamadasWidgetEntryView(entry: SimpleEntry(date: Date(), blockedCallsCount: 0))
-                .previewContext(WidgetPreviewContext(family: .systemSmall))
-                .previewDisplayName("Zero Count")
-            
-            // Single call preview
-            ChaoLlamadasWidgetEntryView(entry: SimpleEntry(date: Date(), blockedCallsCount: 1))
-                .previewContext(WidgetPreviewContext(family: .systemSmall))
-                .previewDisplayName("Single Call")
-        }
-    }
+#Preview(as: .systemSmall) {
+    ChaoLlamadasWidget()
+} timeline: {
+    SimpleEntry(date: .now, blockedCallsCount: 42)
+    SimpleEntry(date: .now, blockedCallsCount: 127)
 }

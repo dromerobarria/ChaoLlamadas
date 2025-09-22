@@ -99,10 +99,13 @@ class CallMonitoringService: NSObject, ObservableObject {
     private func sendBlockedCallNotification(phoneNumber: String) {
         print("📱 [CallMonitor] Preparing to send blocked call notification for: \(phoneNumber)")
         
-        // Check if notifications are enabled with improved detection
+        // ENHANCED: Check notification settings with better synchronization
         let standardNotificationsEnabled = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
+        
         var appGroupNotificationsEnabled = false
         if let appGroupDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            // Force synchronization to get latest settings
+            appGroupDefaults.synchronize()
             appGroupNotificationsEnabled = appGroupDefaults.bool(forKey: "blockNotificationsEnabled")
         }
         
@@ -174,13 +177,14 @@ class CallMonitoringService: NSObject, ObservableObject {
     private func handlePotentialBlockedCall(callUUID: String) {
         print("🔔 [CallMonitor] Handling potential blocked call: \(callUUID)")
         
-        // Check if notifications are enabled - with improved detection
+        // ENHANCED: Check notification settings with better synchronization
         let standardNotificationsEnabled = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
         print("🔍 [CallMonitor] Standard UserDefaults notification setting: \(standardNotificationsEnabled)")
         
-        // Also check App Group UserDefaults as a fallback
+        // Also check App Group UserDefaults as a fallback with forced sync
         var appGroupNotificationsEnabled = false
         if let appGroupDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            appGroupDefaults.synchronize()
             appGroupNotificationsEnabled = appGroupDefaults.bool(forKey: "blockNotificationsEnabled")
             print("🔍 [CallMonitor] App Group notification setting: \(appGroupNotificationsEnabled)")
         }
@@ -382,6 +386,61 @@ extension CallMonitoringService: CXCallObserverDelegate {
             // Start monitoring this call for potential blocking
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 self.checkIfCallWasBlocked(callUUID: call.uuid.uuidString)
+            }
+        }
+    }
+    
+    // NEW: Send notification when a number is first added to block list
+    func sendNumberBlockedNotification(phoneNumber: String) {
+        print("📱 [CallMonitor] Sending 'number blocked' notification for: \(phoneNumber)")
+        
+        // Check notification settings
+        let standardNotificationsEnabled = UserDefaults.standard.bool(forKey: "blockNotificationsEnabled")
+        
+        var appGroupNotificationsEnabled = false
+        if let appGroupDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            appGroupDefaults.synchronize()
+            appGroupNotificationsEnabled = appGroupDefaults.bool(forKey: "blockNotificationsEnabled")
+        }
+        
+        let notificationsEnabled = standardNotificationsEnabled || appGroupNotificationsEnabled
+        print("📱 [CallMonitor] Notification settings for blocking - Standard: \(standardNotificationsEnabled), AppGroup: \(appGroupNotificationsEnabled), Final: \(notificationsEnabled)")
+        
+        guard notificationsEnabled else {
+            print("🔕 [CallMonitor] Notifications disabled - not sending number blocked notification")
+            return
+        }
+        
+        // Check notification permissions
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            print("📱 [CallMonitor] Notification authorization for blocking: \(settings.authorizationStatus.rawValue)")
+            
+            guard settings.authorizationStatus == .authorized else {
+                print("❌ [CallMonitor] Notifications not authorized - cannot send number blocked notification")
+                return
+            }
+            
+            let content = UNMutableNotificationContent()
+            content.title = "🚫 Número Bloqueado"
+            content.body = "\(self.formatPhoneNumber(phoneNumber)) ha sido agregado a la lista de bloqueo. Las llamadas futuras serán bloqueadas silenciosamente."
+            content.sound = .default
+            content.badge = 1
+            
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: "number-blocked-\(Date().timeIntervalSince1970)",
+                content: content,
+                trigger: trigger
+            )
+            
+            print("📱 [CallMonitor] Scheduling number blocked notification: '\(content.title)' - '\(content.body)'")
+            
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error = error {
+                    print("❌ [CallMonitor] Error sending number blocked notification: \(error)")
+                } else {
+                    print("✅ [CallMonitor] Number blocked notification sent successfully!")
+                }
             }
         }
     }

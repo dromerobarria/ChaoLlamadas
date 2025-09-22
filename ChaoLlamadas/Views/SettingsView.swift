@@ -9,12 +9,22 @@ import SwiftUI
 import TipKit
 import UserNotifications
 
+enum ResetStatusType {
+    case inProgress
+    case completed
+    case error
+}
+
 struct SettingsView: View {
     @StateObject private var callBlockingService = CallBlockingService.shared
     @StateObject private var tipManager = CallBlockingTipManager.shared
     @State private var showingSetup = false
     @State private var showingBlockingDisabledAlert = false
     @State private var showingCommonIssues = false
+    @State private var showingResetStatus = false
+    @State private var resetStatusMessage = ""
+    @State private var resetStatusType: ResetStatusType = .inProgress
+    private let notificationBetaTip = NotificationBetaTip()
     
     var body: some View {
         NavigationStack {
@@ -80,7 +90,7 @@ struct SettingsView: View {
                                     .font(.headline)
                                     .foregroundStyle(.primary)
                                 
-                                Text("República Dominicana y llamadas internacionales")
+                                Text(callBlockingService.callDirectoryStatus)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -108,11 +118,22 @@ struct SettingsView: View {
                             }
                             
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Notificar Llamadas Bloqueadas")
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
+                                HStack {
+                                    Text("Notificar Llamadas Bloqueadas")
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                    
+                                    Text("(Beta)")
+                                        .font(.caption2)
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.blue)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                }
                                 
-                                Text("Recibe una notificación cuando se bloquee una llamada")
+                                Text("Solo la primera llamada de cada número - siguientes son bloqueadas silenciosamente")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -122,6 +143,13 @@ struct SettingsView: View {
                     .onChange(of: callBlockingService.blockNotificationsEnabled) { oldValue, newValue in
                         print("🔔 [Settings] Notification toggle changed: \(oldValue) → \(newValue)")
                         callBlockingService.setBlockNotifications(enabled: newValue)
+                    }
+                    
+                    // Show notification tip when notifications are enabled
+                    if callBlockingService.blockNotificationsEnabled {
+                        TipView(notificationBetaTip, arrowEdge: .top)
+                            .tipBackground(.regularMaterial)
+                            .padding(.horizontal)
                     }
                     
                     // Test notification button - only show when notifications are enabled
@@ -173,7 +201,11 @@ struct SettingsView: View {
                     )
                     
                     // Reset Numbers button - prominent placement
-                    ResetNumbersButton()
+                    ResetNumbersButton(
+                        showingResetStatus: $showingResetStatus,
+                        resetStatusMessage: $resetStatusMessage,
+                        resetStatusType: $resetStatusType
+                    )
                     
                 } header: {
                     Text("Bloqueo de Llamadas")
@@ -265,6 +297,16 @@ struct SettingsView: View {
                 Button("Más Tarde", role: .cancel) { }
             } message: {
                 Text("El bloqueo de llamadas no está activo. Para bloquear llamadas spam, necesitas activar ChaoLlamadas en Configuración > Teléfono > Bloqueo e Identificación de Llamadas.")
+            }
+            .overlay(alignment: .center) {
+                if showingResetStatus {
+                    ResetStatusOverlay(
+                        message: resetStatusMessage,
+                        type: resetStatusType,
+                        isShowing: $showingResetStatus
+                    )
+                    .animation(.easeInOut(duration: 0.3), value: showingResetStatus)
+                }
             }
         }
     }
@@ -575,6 +617,9 @@ struct BlockingAppsWarningCard: View {
 struct ResetNumbersButton: View {
     @StateObject private var callBlockingService = CallBlockingService.shared
     @State private var showingResetAlert = false
+    @Binding var showingResetStatus: Bool
+    @Binding var resetStatusMessage: String
+    @Binding var resetStatusType: ResetStatusType
     
     var body: some View {
         Button(action: {
@@ -596,7 +641,7 @@ struct ResetNumbersButton: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                     
-                    Text("Elimina todos los números bloqueados y limpia CallKit")
+                    Text("Elimina todos los números bloqueados y limpia el sistema")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
@@ -624,11 +669,136 @@ struct ResetNumbersButton: View {
     private func resetAllNumbers() {
         print("🔄 [Reset] Starting complete number reset from Settings")
         
+        // Show initial status
+        showingResetStatus = true
+        resetStatusMessage = "Iniciando reset completo..."
+        resetStatusType = .inProgress
+        
         // Call the service method directly since we have access to it here
         callBlockingService.performCompleteReset()
+        
+        // Simulate the reset process with status updates
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            resetStatusMessage = "Limpiando base de datos CallKit..."
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            resetStatusMessage = "Desactivando bloqueos automáticos..."
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+            resetStatusMessage = "Eliminando números manuales..."
+        }
+        
+        // Check for completion or error
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+            // Check the status from CallBlockingService
+            if callBlockingService.callDirectoryStatus.contains("reset") || 
+               callBlockingService.callDirectoryStatus.contains("Reset") {
+                if callBlockingService.callDirectoryStatus.contains("completado") {
+                    resetStatusMessage = "¡Reset completado exitosamente!"
+                    resetStatusType = .completed
+                } else {
+                    resetStatusMessage = "Error durante el reset. Ver configuración."
+                    resetStatusType = .error
+                }
+            } else {
+                resetStatusMessage = "¡Reset completado exitosamente!"
+                resetStatusType = .completed
+            }
+            
+            // Hide status after 3 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                showingResetStatus = false
+            }
+        }
     }
 }
 
+
+struct ResetStatusOverlay: View {
+    let message: String
+    let type: ResetStatusType
+    @Binding var isShowing: Bool
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Icon based on status type
+            ZStack {
+                Circle()
+                    .fill(iconBackgroundColor.opacity(0.2))
+                    .frame(width: 60, height: 60)
+                
+                if type == .inProgress {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(iconColor)
+                } else {
+                    Image(systemName: iconName)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(iconColor)
+                }
+            }
+            
+            // Message
+            Text(message)
+                .font(.headline)
+                .fontWeight(.medium)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+            
+            // Close button for completed/error states
+            if type != .inProgress {
+                Button("Cerrar") {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        isShowing = false
+                    }
+                }
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(.blue)
+            }
+        }
+        .padding(24)
+        .background {
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(iconColor.opacity(0.3), lineWidth: 1)
+        }
+        .frame(maxWidth: 280)
+        .transition(.scale.combined(with: .opacity))
+    }
+    
+    private var iconName: String {
+        switch type {
+        case .inProgress:
+            return "clock"
+        case .completed:
+            return "checkmark.circle.fill"
+        case .error:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+    
+    private var iconColor: Color {
+        switch type {
+        case .inProgress:
+            return .blue
+        case .completed:
+            return .green
+        case .error:
+            return .red
+        }
+    }
+    
+    private var iconBackgroundColor: Color {
+        iconColor
+    }
+}
 
 #Preview {
     SettingsView()

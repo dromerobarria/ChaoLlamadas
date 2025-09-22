@@ -8,10 +8,12 @@
 import SwiftUI
 import SwiftData
 import TipKit
+import UserNotifications
 
 @main
 struct ChaoLlamadasApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @Environment(\.scenePhase) private var scenePhase
     
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -79,12 +81,32 @@ struct ChaoLlamadasApp: App {
                 // Initialize CallMonitoringService with model container
                 CallMonitoringService.shared.setupModelContainer(sharedModelContainer)
                 
+                // Clear notification badge on app launch
+                clearNotificationBadge()
+                
                 // Update blocked calls count on app launch
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     CallMonitoringService.shared.monitorExtensionLogs()
                 }
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    // Clear badge when app becomes active (foreground)
+                    clearNotificationBadge()
+                }
+            }
         }
         .modelContainer(sharedModelContainer)
+    }
+    
+    private func clearNotificationBadge() {
+        print("🏷️ [App] Clearing notification badge")
+        UNUserNotificationCenter.current().setBadgeCount(0) { error in
+            if let error = error {
+                print("❌ [App] Failed to clear badge: \(error)")
+            } else {
+                print("✅ [App] Notification badge cleared successfully")
+            }
+        }
     }
 }

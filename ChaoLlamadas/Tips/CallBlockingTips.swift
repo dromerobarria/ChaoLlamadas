@@ -123,6 +123,54 @@ struct ExtensionResetTip: Tip {
     static var shouldShowResetTip: Bool = false
 }
 
+// Tip to explain first call only behavior
+struct FirstCallOnlyTip: Tip {
+    var title: Text {
+        Text("💡 Solo Primera Llamada")
+    }
+    
+    var message: Text? {
+        Text("Esta lista muestra solo la primera llamada bloqueada de cada número. Las siguientes llamadas del mismo número son bloqueadas silenciosamente por iOS sin aparecer aquí.")
+    }
+    
+    var image: Image? {
+        Image(systemName: "info.circle")
+    }
+    
+    var rules: [Rule] {
+        [
+            #Rule(Self.$hasSeenFirstCallExplanation) { $0 == false }
+        ]
+    }
+    
+    @Parameter
+    static var hasSeenFirstCallExplanation: Bool = false
+}
+
+// Tip to explain notification behavior
+struct NotificationBetaTip: Tip {
+    var title: Text {
+        Text("🔔 Notificaciones Beta")
+    }
+    
+    var message: Text? {
+        Text("Las notificaciones son experimentales. Solo recibirás notificación la primera vez que se bloquee un número. Las llamadas siguientes del mismo número son bloqueadas silenciosamente por iOS.")
+    }
+    
+    var image: Image? {
+        Image(systemName: "bell.badge")
+    }
+    
+    var rules: [Rule] {
+        [
+            #Rule(Self.$hasSeenNotificationExplanation) { $0 == false }
+        ]
+    }
+    
+    @Parameter
+    static var hasSeenNotificationExplanation: Bool = false
+}
+
 // Manager class to handle tip logic
 class CallBlockingTipManager: ObservableObject {
     static let shared = CallBlockingTipManager()
@@ -159,11 +207,21 @@ class CallBlockingTipManager: ObservableObject {
         ExtensionResetTip.shouldShowResetTip = false
     }
     
+    func markFirstCallExplanationSeen() {
+        FirstCallOnlyTip.hasSeenFirstCallExplanation = true
+    }
+    
+    func markNotificationExplanationSeen() {
+        NotificationBetaTip.hasSeenNotificationExplanation = true
+    }
+    
     func resetAllTips() {
         try? Tips.resetDatastore()
         CallKitSetupTip.hasSeenCallKitSetup = false
         ManualBlockingTip.hasSeenManualBlocking = false
         BlockingAppsWarningTip.hasSeenBlockingWarning = false
         ExtensionResetTip.shouldShowResetTip = false
+        FirstCallOnlyTip.hasSeenFirstCallExplanation = false
+        NotificationBetaTip.hasSeenNotificationExplanation = false
     }
 }

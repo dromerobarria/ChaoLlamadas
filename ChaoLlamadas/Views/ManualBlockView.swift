@@ -156,6 +156,9 @@ struct ManualBlockView: View {
                     do {
                         try modelContext.save()
                         print("✅ [ManualBlock] Successfully saved blocked number to SwiftData after CallKit success: \(pendingNumber.phoneNumber)")
+                        
+                        // Send notification that the number was blocked
+                        CallMonitoringService.shared.sendNumberBlockedNotification(phoneNumber: pendingNumber.phoneNumber)
                     } catch {
                         print("❌ [ManualBlock] Error saving blocked number after CallKit success: \(error)")
                     }

@@ -33,6 +33,7 @@ struct BlockedNumbersView: View {
     
     private let callKitSetupTip = CallKitSetupTip()
     private let blockingAppsWarningTip = BlockingAppsWarningTip()
+    private let firstCallOnlyTip = FirstCallOnlyTip()
     
     var blockedCalls: [CallRecord] {
         callRecords.filter { $0.wasBlocked }
@@ -95,12 +96,37 @@ struct BlockedNumbersView: View {
                     VStack(spacing: 20) {
                         
                         
+                        // Subtitle header to explain "last calls only"
+                        VStack(spacing: 8) {
+                            HStack {
+                                Text("Últimas Llamadas Registradas")
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.primary)
+                                
+                                Spacer()
+                            }
+                            
+                            HStack {
+                                Text("Solo se muestra la primera llamada bloqueada de cada número")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                
+                                Spacer()
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        
                         // Header card with statistics
                         StatsCard()
                         
                         // Auto-block notice
                         AutoBlockNoticeCard()
                         
+                        // First call only tip
+                        TipView(firstCallOnlyTip, arrowEdge: .top)
+                            .tipBackground(.regularMaterial)
+                            .padding(.horizontal, 20)
                         
                         // Blocked items list (calls + manual numbers)
                         if allBlockedItems.isEmpty {

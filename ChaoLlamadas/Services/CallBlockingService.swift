@@ -87,61 +87,274 @@ class CallBlockingService: NSObject, ObservableObject {
     
     // COMPLETE RESET: Centralized method to perform complete reset
     func performCompleteReset() {
-        print("🔄 [Reset] Starting complete reset from CallBlockingService")
+        print("🔄 [Reset] Starting ENHANCED complete reset from CallBlockingService")
         
         // Step 1: Clear all manual numbers from SwiftData
         deleteAllManualNumbers()
         
-        // Step 2: Disable all prefix blocking
-        set600Blocking(enabled: false)
-        set809Blocking(enabled: false)
-        
-        // Step 3: Clear App Group data
+        // Step 2: Clear App Group data FIRST
         guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
             print("❌ [Reset] Failed to access App Group")
+            DispatchQueue.main.async {
+                self.callDirectoryStatus = "Error: No se pudo acceder a App Group"
+            }
             return
         }
         
-        // Clear all number-related data
-        userDefaults.removeObject(forKey: "manuallyBlockedNumbers")
-        userDefaults.removeObject(forKey: "previousManuallyBlockedNumbers")
-        userDefaults.removeObject(forKey: "exceptions")
-        userDefaults.removeObject(forKey: "is600BlockingEnabled")
-        userDefaults.removeObject(forKey: "is809BlockingEnabled")
-        userDefaults.set(true, forKey: "forceFullReload")
-        userDefaults.removeObject(forKey: "useIncrementalUpdate")
+        print("🧹 [Reset] Clearing ALL App Group data")
+        // Clear ALL data to ensure clean slate
+        let keysToRemove = [
+            "manuallyBlockedNumbers", "previousManuallyBlockedNumbers", "exceptions",
+            "lastProcessedNumbers", "lastBlockedCount", "manualConversionSuccess",
+            "manualBlockedCount", "extensionLogs", "extensionDebugLogs",
+            "lastExtensionRun", "lastExtensionResult", "extensionProof"
+        ]
         
-        // Step 4: Force CallKit extension to clear everything
-        userDefaults.set([], forKey: "manuallyBlockedNumbers")
-        userDefaults.set(false, forKey: "is600BlockingEnabled")
-        userDefaults.set(false, forKey: "is809BlockingEnabled")
+        for key in keysToRemove {
+            userDefaults.removeObject(forKey: key)
+        }
+        
+        // Set reset flags and disabled states
         userDefaults.set(true, forKey: "forceCompleteReset")
+        userDefaults.set(false, forKey: "is600BlockingEnabled") 
+        userDefaults.set(false, forKey: "is809BlockingEnabled")
+        userDefaults.set("RESET_REQUESTED", forKey: "resetExecutionProof")
+        userDefaults.set(Date(), forKey: "resetRequestTime")
         
-        userDefaults.synchronize()
+        // SKIP UNRELIABLE synchronize() - Just verify the data was written
+        // The synchronize() method is unreliable in iOS and often fails even when data is written correctly
+        print("🔄 [Reset] Skipping unreliable synchronize() - verifying data write directly")
         
-        print("✅ [Reset] All data cleared from App and App Group")
+        // Verify the reset flag was actually written
+        let verifyResetFlag = userDefaults.bool(forKey: "forceCompleteReset")
+        let verify600Flag = userDefaults.bool(forKey: "is600BlockingEnabled")
+        let verify809Flag = userDefaults.bool(forKey: "is809BlockingEnabled")
         
-        // Step 5: Update UI state immediately
+        print("🔍 [Reset] Data verification - Reset flag: \(verifyResetFlag), 600: \(verify600Flag), 809: \(verify809Flag)")
+        
+        if !verifyResetFlag {
+            print("❌ [Reset] CRITICAL: Reset flag was not written to App Group")
+            DispatchQueue.main.async {
+                self.callDirectoryStatus = "Error: No se pudo escribir flag de reset"
+            }
+            return
+        }
+        
+        print("✅ [Reset] App Group data verified - reset flag is set correctly")
+        
+        // Step 3: Update UI state immediately and UserDefaults
+        UserDefaults.standard.set(false, forKey: "is600BlockingEnabled")
+        UserDefaults.standard.set(false, forKey: "is809BlockingEnabled")
+        UserDefaults.standard.synchronize()
+        
         DispatchQueue.main.async {
             self.is600BlockingEnabled = false
             self.is809BlockingEnabled = false
-            self.callDirectoryStatus = "Reseteando números bloqueados..."
+            self.callDirectoryStatus = "Iniciando reset CallKit..."
+            print("🔄 [Reset] UI state updated - 600: false, 809: false")
         }
         
-        // Step 6: Force extension reload to clear CallKit database
-        print("🔄 [Reset] Forcing extension reload to process complete reset")
+        // Step 4: ENHANCED MULTI-PHASE RESET PROCESS
+        print("🚀 [Reset] Starting multi-phase reset process")
         
-        // Force immediate reload to process the reset flag
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.forceCompleteResetReload()
+        // Phase 1: Force extension to execute and process reset flag
+        self.executeResetPhase1()
+    }
+    
+    // ENHANCED RESET PHASE 1: Force extension execution to process reset flag
+    private func executeResetPhase1() {
+        print("🔄 [Reset Phase 1] Forcing extension execution to process reset flag")
+        
+        DispatchQueue.main.async {
+            self.callDirectoryStatus = "Ejecutando reset CallKit..."
         }
         
-        // Step 7: Update status after a delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            self.callDirectoryStatus = "Reset completado - números desbloqueados"
+        // Reset all timing restrictions to force immediate execution
+        lastReloadTime = Date.distantPast
+        isReloadInProgress = false
+        retryCount = 0
+        
+        // Attempt multiple extension reloads to ensure it runs
+        var attemptCount = 0
+        let maxAttempts = 3
+        
+        func attemptResetPhase1() {
+            attemptCount += 1
+            print("🔄 [Reset Phase 1] Attempt \(attemptCount)/\(maxAttempts)")
+            
+            CXCallDirectoryManager.sharedInstance.reloadExtension(withIdentifier: extensionIdentifier) { [weak self] error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        let errorCode = (error as NSError).code
+                        print("⚠️ [Reset Phase 1] Attempt \(attemptCount) failed: \(error)")
+                        
+                        if attemptCount < maxAttempts {
+                            // Try again after a short delay
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                attemptResetPhase1()
+                            }
+                        } else {
+                            print("❌ [Reset Phase 1] All attempts failed")
+                            self?.callDirectoryStatus = "Error en reset: \(error.localizedDescription)"
+                        }
+                    } else {
+                        print("✅ [Reset Phase 1] Extension reload successful")
+                        
+                        // Wait and check if reset was processed
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            self?.verifyResetPhase1Completion()
+                        }
+                    }
+                }
+            }
         }
         
-        print("🎉 [Reset] Complete reset finished - all numbers should be unblocked")
+        // Start Phase 1 attempts
+        attemptResetPhase1()
+    }
+    
+    // VERIFY RESET PHASE 1: Check if extension processed the reset flag
+    private func verifyResetPhase1Completion() {
+        print("🔍 [Reset Phase 1] Verifying reset flag was processed by extension")
+        
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            print("❌ [Reset Phase 1] Cannot verify - App Group not accessible")
+            self.callDirectoryStatus = "Error: No se puede verificar reset"
+            return
+        }
+        
+        // Check for reset execution proof from extension
+        let resetProof = userDefaults.string(forKey: "resetExecutionProof") ?? "NO_PROOF"
+        let resetFlag = userDefaults.bool(forKey: "forceCompleteReset")
+        let lastResetTime = userDefaults.object(forKey: "lastCompleteResetTime") as? Date
+        
+        print("🔍 [Reset Phase 1] Reset proof: \(resetProof)")
+        print("🔍 [Reset Phase 1] Reset flag still set: \(resetFlag)")
+        print("🔍 [Reset Phase 1] Last reset time: \(lastResetTime?.description ?? "Never")")
+        
+        if resetProof == "COMPLETE_RESET_EXECUTED" && !resetFlag {
+            print("✅ [Reset Phase 1] SUCCESS - Extension processed reset flag")
+            self.callDirectoryStatus = "Reset CallKit completado - verificando..."
+            
+            // Proceed to Phase 2: Verification
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                self.executeResetPhase2()
+            }
+        } else {
+            print("❌ [Reset Phase 1] FAILED - Extension did not process reset flag")
+            print("💡 [Reset Phase 1] This indicates extension is not running or not seeing the flag")
+            
+            // Try one more aggressive approach
+            DispatchQueue.main.async {
+                self.callDirectoryStatus = "Reset incompleto - reintentando..."
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                self.executeAggressiveReset()
+            }
+        }
+    }
+    
+    // ENHANCED RESET PHASE 2: Verification and cleanup  
+    private func executeResetPhase2() {
+        print("🔄 [Reset Phase 2] Verifying reset and testing with clean reload")
+        
+        DispatchQueue.main.async {
+            self.callDirectoryStatus = "Verificando reset completo..."
+        }
+        
+        // Try to add a test number to verify the reset actually cleared the database
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            print("❌ [Reset Phase 2] Cannot access App Group")
+            return
+        }
+        
+        // Test by trying to add the previously problematic number
+        let testNumber = "+56989980754"
+        userDefaults.set([testNumber], forKey: "manuallyBlockedNumbers")
+        userDefaults.set(false, forKey: "forceCompleteReset") // Ensure reset flag is off
+        userDefaults.synchronize()
+        
+        print("🧪 [Reset Phase 2] Testing with number: \(testNumber)")
+        
+        // Try to reload with the test number
+        CXCallDirectoryManager.sharedInstance.reloadExtension(withIdentifier: extensionIdentifier) { [weak self] error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    let errorCode = (error as NSError).code
+                    print("⚠️ [Reset Phase 2] Test reload failed: \(error)")
+                    
+                    if errorCode == 19 {
+                        print("❌ [Reset Phase 2] CRITICAL: UNIQUE constraint error STILL EXISTS")
+                        print("💀 [Reset Phase 2] This means the reset did NOT work - database still has conflicts")
+                        self?.callDirectoryStatus = "FALLO CRÍTICO: Reset no funcionó - base de datos corrupta"
+                    } else {
+                        print("⚠️ [Reset Phase 2] Different error: \(errorCode)")
+                        self?.callDirectoryStatus = "Error post-reset: \(error.localizedDescription)"
+                    }
+                } else {
+                    print("🎉 [Reset Phase 2] SUCCESS! Test reload worked - reset was successful")
+                    self?.callDirectoryStatus = "¡Reset completado exitosamente!"
+                }
+            }
+        }
+    }
+    
+    // AGGRESSIVE RESET: Last resort when normal reset fails
+    private func executeAggressiveReset() {
+        print("💀 [Aggressive Reset] Extension not responding - executing aggressive reset")
+        
+        DispatchQueue.main.async {
+            self.callDirectoryStatus = "Reset agresivo - forzando limpieza..."
+        }
+        
+        // This is the most aggressive approach - multiple rapid reloads to force the extension to run
+        for attempt in 1...5 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(attempt)) {
+                print("💀 [Aggressive Reset] Aggressive attempt \(attempt)/5")
+                
+                CXCallDirectoryManager.sharedInstance.reloadExtension(withIdentifier: self.extensionIdentifier) { error in
+                    if let error = error {
+                        print("❌ [Aggressive Reset] Attempt \(attempt) failed: \(error)")
+                    } else {
+                        print("✅ [Aggressive Reset] Attempt \(attempt) succeeded")
+                    }
+                    
+                    // Check if this is the final attempt
+                    if attempt == 5 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            self.verifyAggressiveResetCompletion()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // VERIFY AGGRESSIVE RESET: Final verification
+    private func verifyAggressiveResetCompletion() {
+        print("🔍 [Aggressive Reset] Final verification")
+        
+        guard let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") else {
+            DispatchQueue.main.async {
+                self.callDirectoryStatus = "Error: No se puede verificar reset final"
+            }
+            return
+        }
+        
+        let resetProof = userDefaults.string(forKey: "resetExecutionProof") ?? "NO_PROOF"
+        
+        if resetProof == "COMPLETE_RESET_EXECUTED" {
+            print("✅ [Aggressive Reset] SUCCESS after aggressive attempts")
+            DispatchQueue.main.async {
+                self.callDirectoryStatus = "Reset completado tras múltiples intentos"
+            }
+        } else {
+            print("💀 [Aggressive Reset] FAILED - Extension never processed reset")
+            DispatchQueue.main.async {
+                self.callDirectoryStatus = "CRÍTICO: Reset falló - IR A CONFIGURACIÓN iOS y desactivar/activar ChaoLlamadas manualmente"
+            }
+        }
     }
     
     // FORCE COMPLETE RESET: Special reload just for reset operations
@@ -1603,7 +1816,7 @@ class CallBlockingService: NSObject, ObservableObject {
                                     }
                                 } else {
                                     print("🎉 [CallKit] Gentle reload successful after rate limiting!")
-                                    self.callDirectoryStatus = "CallKit activado - Bloqueo funcionando"
+                                    self.callDirectoryStatus = "Sistema activado - Bloqueo funcionando"
                                     
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                         WidgetCenter.shared.reloadAllTimelines()

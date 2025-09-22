@@ -131,30 +131,65 @@ class CallDirectoryHandler: CXCallDirectoryProvider {
         
         // Try to load from App Group with enhanced fallback handling
         if let userDefaults = UserDefaults(suiteName: "group.dromero.chaollamadas") {
+            // FORCE APP GROUP SYNC BEFORE READING RESET FLAG
+            print("🔄 [\(timestamp)] Forcing App Group sync before reading reset flag")
+            userDefaults.synchronize()
+            
             // CHECK FOR COMPLETE RESET FLAG FIRST
             let forceCompleteReset = userDefaults.bool(forKey: "forceCompleteReset")
             print("🔍 [\(timestamp)] Checking forceCompleteReset flag: \(forceCompleteReset)")
+            
+            // ENHANCED DEBUGGING: Show all reset-related keys
+            let resetProof = userDefaults.string(forKey: "resetExecutionProof") ?? "NO_PROOF"
+            let resetRequestTime = userDefaults.object(forKey: "resetRequestTime") as? Date
+            let lastResetTime = userDefaults.object(forKey: "lastCompleteResetTime") as? Date
+            
+            print("🔍 [\(timestamp)] RESET DEBUG INFO:")
+            print("   - forceCompleteReset flag: \(forceCompleteReset)")
+            print("   - resetExecutionProof: \(resetProof)")
+            print("   - resetRequestTime: \(resetRequestTime?.description ?? "Never")")
+            print("   - lastCompleteResetTime: \(lastResetTime?.description ?? "Never")")
+            
+            writeExtensionLog("🔍 RESET DEBUG: flag=\(forceCompleteReset), proof=\(resetProof)")
             
             if forceCompleteReset {
                 print("💥 [\(timestamp)] COMPLETE RESET REQUESTED - Clearing ALL CallKit entries")
                 writeExtensionLog("💥 COMPLETE RESET: Clearing all CallKit entries")
                 NSLog("💥 ChaoLlamadas: COMPLETE RESET - Clearing all CallKit entries")
                 
-                // Clear ALL entries from CallKit database
-                print("🗑️ [\(timestamp)] Calling removeAllBlockingEntries()")
-                context.removeAllBlockingEntries()
-                print("🗑️ [\(timestamp)] Calling removeAllIdentificationEntries()")
-                context.removeAllIdentificationEntries()
+                // ENHANCED: Clear ALL entries from CallKit database with better error handling
+                do {
+                    print("🗑️ [\(timestamp)] Calling removeAllBlockingEntries()")
+                    context.removeAllBlockingEntries()
+                    print("✅ [\(timestamp)] removeAllBlockingEntries() completed successfully")
+                    
+                    print("🗑️ [\(timestamp)] Calling removeAllIdentificationEntries()")
+                    context.removeAllIdentificationEntries()
+                    print("✅ [\(timestamp)] removeAllIdentificationEntries() completed successfully")
+                } catch {
+                    print("❌ [\(timestamp)] Error during reset clear operations: \(error)")
+                    writeExtensionLog("❌ RESET ERROR: \(error.localizedDescription)")
+                    NSLog("❌ ChaoLlamadas: RESET ERROR: %@", error.localizedDescription)
+                }
                 
-                // Clear the reset flag
+                // ENHANCED: Save reset completion status and clear flags
                 userDefaults.set(false, forKey: "forceCompleteReset")
+                userDefaults.set(Date(), forKey: "lastCompleteResetTime")
+                userDefaults.set("COMPLETE_RESET_EXECUTED", forKey: "resetExecutionProof")
+                
+                // Also clear all other data to prevent conflicts
+                userDefaults.removeObject(forKey: "manuallyBlockedNumbers")
+                userDefaults.removeObject(forKey: "previousManuallyBlockedNumbers")
+                userDefaults.removeObject(forKey: "lastProcessedNumbers")
+                userDefaults.set(false, forKey: "is600BlockingEnabled")
+                userDefaults.set(false, forKey: "is809BlockingEnabled")
                 userDefaults.synchronize()
                 
                 print("✅ [\(timestamp)] COMPLETE RESET FINISHED - All entries cleared from CallKit")
-                writeExtensionLog("✅ COMPLETE RESET FINISHED - CallKit database cleared")
+                writeExtensionLog("✅ COMPLETE RESET FINISHED - CallKit database cleared, all flags reset")
                 NSLog("✅ ChaoLlamadas: COMPLETE RESET FINISHED - All CallKit entries cleared")
                 
-                logExtensionActivity("Complete reset executed - all CallKit entries cleared")
+                logExtensionActivity("Complete reset executed - all CallKit entries cleared, all data reset")
                 return // Exit early - nothing else to do
             } else {
                 print("ℹ️ [\(timestamp)] No reset requested - proceeding with normal operation")
@@ -360,6 +395,20 @@ class CallDirectoryHandler: CXCallDirectoryProvider {
             addAllBlockingPhoneNumbers(to: context)
             return
         }
+        
+        // ✅ CRITICAL FIX: CHECK FOR RESET FLAG IN INCREMENTAL MODE TOO!
+        userDefaults.synchronize()
+        let forceCompleteReset = userDefaults.bool(forKey: "forceCompleteReset")
+        print("🔍 [\(timestamp)] [INCREMENTAL] Checking forceCompleteReset flag: \(forceCompleteReset)")
+        
+        if forceCompleteReset {
+            print("💥 [\(timestamp)] [INCREMENTAL] RESET FLAG DETECTED - Switching to full mode for reset")
+            writeExtensionLog("💥 INCREMENTAL: Reset flag detected - switching to full mode")
+            addAllBlockingPhoneNumbers(to: context)
+            return
+        }
+        
+        print("ℹ️ [\(timestamp)] [INCREMENTAL] No reset flag - proceeding with incremental update")
         
         // Get current manually blocked numbers
         let currentManual = loadManualNumbersWithFallback(userDefaults: userDefaults)
